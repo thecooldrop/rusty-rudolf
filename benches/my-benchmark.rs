@@ -29,7 +29,7 @@ pub fn kalman_update_benchmark(c: &mut Criterion) {
     c.bench_function(
         "Kalman update for updating 1000 inputs with 10 measurements, totaling in 10000 updates",
         |b| {
-            b.iter(|| {
+            b.iter_with_large_drop(|| {
                 kf.update(
                     &black_box(Array2::zeros([1000, 8])),
                     &black_box(Array3::zeros([1000, 8, 8])),
