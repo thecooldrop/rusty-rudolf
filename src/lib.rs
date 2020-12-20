@@ -1,4 +1,4 @@
-mod kalman;
+pub mod kalman;
 
 #[cfg(test)]
 mod tests {
