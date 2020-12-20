@@ -89,26 +89,6 @@ impl KalmanFilterWithoutControl {
         innovations
     }
 
-    fn innovation_covariances(&self, covariances: &Array3<f64>) -> Array3<f64> {
-
-        let innovation_covariance_dim = self.observation_matrix.dim().0;
-        let mut innovation_covariances: Array3<f64> =
-            Array3::zeros([covariances.dim().0, innovation_covariance_dim, innovation_covariance_dim]);
-        for (mut inno_mat_view, cov_view) in innovation_covariances
-            .outer_iter_mut()
-            .zip(covariances.outer_iter())
-        {
-            inno_mat_view.assign(
-                &(self
-                    .observation_matrix
-                    .dot(&cov_view)
-                    .dot(&self.observation_matrix.t())
-                    + &self.observation_covariance),
-            );
-        }
-        innovation_covariances
-    }
-
     fn kalman_gains(&self, l_matrices: &Array3<f64>, u_matrices_inv: &Array3<f64>) -> Array3<f64> {
         let l_dim = l_matrices.dim();
         let u_dim = u_matrices_inv.dim();
