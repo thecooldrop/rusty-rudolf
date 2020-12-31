@@ -1,7 +1,8 @@
-use ndarray::{Array2, Array3, Axis};
+use ndarray::{Array2, Array3, Axis, ShapeBuilder};
 use ndarray_linalg::InverseC;
 use std::ops::AddAssign;
 use std::ops::SubAssign;
+use std::iter::FromIterator;
 
 pub struct KalmanFilterWithoutControl {
     pub transition_matrix: Array2<f64>,
@@ -17,7 +18,7 @@ impl KalmanFilterWithoutControl {
         states: &Array2<f64>,
         covariances: &Array3<f64>,
     ) -> (Array2<f64>, Array3<f64>) {
-        let predicted_states = self.transition_matrix.dot(&states.t());
+        let predicted_states = self.transition_matrix.dot(&states.t()).t().to_owned();
         unsafe {
             let mut predicted_covariances = Array3::uninitialized(covariances.raw_dim());
             let predicted_covariances_iter = predicted_covariances.outer_iter_mut();
