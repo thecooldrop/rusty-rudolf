@@ -5,14 +5,14 @@ use std::ops::SubAssign;
 use cauchy::Scalar;
 use ndarray_linalg::lapack::Lapack;
 
-pub struct KalmanFilterWithoutControl<T: Scalar + Lapack> {
+pub struct KalmanFilter<T: Scalar + Lapack> {
     pub transition_matrix: Array2<T>,
     pub observation_matrix: Array2<T>,
     pub transition_covariance: Array2<T>,
     pub observation_covariance: Array2<T>,
 }
 
-impl<T:Scalar + Lapack> KalmanFilterWithoutControl<T> {
+impl<T:Scalar + Lapack> KalmanFilter<T> {
 
     pub fn predict<A: Data<Elem = T>>(
         &self,
