@@ -1,4 +1,4 @@
-use ndarray::{Array2, Array3, Axis, Data, ArrayBase, Ix2, Ix3};
+use ndarray::{Array2, Array3, Axis, Data, ArrayBase, Ix2, Ix3, ShapeError, ErrorKind};
 use ndarray_linalg::InverseC;
 use std::ops::AddAssign;
 use std::ops::SubAssign;
@@ -6,13 +6,67 @@ use cauchy::Scalar;
 use ndarray_linalg::lapack::Lapack;
 
 pub struct KalmanFilter<T: Scalar + Lapack> {
-    pub transition_matrix: Array2<T>,
-    pub observation_matrix: Array2<T>,
-    pub transition_covariance: Array2<T>,
-    pub observation_covariance: Array2<T>,
+     transition_matrix: Array2<T>,
+     observation_matrix: Array2<T>,
+     transition_covariance: Array2<T>,
+     observation_covariance: Array2<T>,
 }
 
 impl<T:Scalar + Lapack> KalmanFilter<T> {
+
+    pub fn new<A: Data<Elem=T>>(transition_matrix: &ArrayBase<A, Ix2>,
+                                observation_matrix: &ArrayBase<A, Ix2>,
+                                transition_covariance: &ArrayBase<A, Ix2>,
+                                observation_covariance: &ArrayBase<A, Ix2>) -> Result<KalmanFilter<T>, ShapeError>
+    {
+
+        KalmanFilter::check_dimension_compatibilities(transition_matrix,
+                                                   observation_matrix,
+                                                   transition_covariance,
+                                                   observation_covariance)?;
+
+        let kalman_filter = KalmanFilter {
+            transition_matrix: transition_matrix.to_owned(),
+            observation_matrix: observation_matrix.to_owned(),
+            transition_covariance: transition_covariance.to_owned(),
+            observation_covariance: observation_covariance.to_owned(),
+        };
+
+        Result::Ok(kalman_filter)
+    }
+
+    fn check_dimension_compatibilities<A: Data<Elem=T>>(transition_matrix: &ArrayBase<A, Ix2>,
+                                                        observation_matrix: &ArrayBase<A, Ix2>,
+                                                        transition_covariance: &ArrayBase<A, Ix2>,
+                                                        observation_covariance: &ArrayBase<A, Ix2>) -> Result<(), ShapeError>
+    {
+        let transition_matrix_dim = transition_matrix.dim();
+        let observation_matrix_dim = observation_matrix.dim();
+        let transition_covariance_dim = transition_covariance.dim();
+        let observation_covariance_dim = observation_covariance.dim();
+
+        if observation_matrix_dim.1 != transition_matrix_dim.1 {
+            return Result::Err(ShapeError::from_kind(ErrorKind::IncompatibleShape));
+        }
+
+        if observation_matrix_dim.0 != observation_covariance_dim.0 {
+            return Result::Err(ShapeError::from_kind(ErrorKind::IncompatibleShape));
+        }
+
+        if transition_matrix_dim.0 != transition_covariance_dim.0 {
+            return Result::Err(ShapeError::from_kind(ErrorKind::IncompatibleShape));
+        }
+
+        if transition_covariance_dim.0 != transition_covariance_dim.1 {
+            return Result::Err(ShapeError::from_kind(ErrorKind::IncompatibleShape));
+        }
+
+        if observation_covariance_dim.0 != observation_covariance_dim.1 {
+            return Result::Err(ShapeError::from_kind(ErrorKind::IncompatibleShape));
+        }
+
+        Result::Ok(())
+    }
 
     pub fn predict<A: Data<Elem = T>>(
         &self,

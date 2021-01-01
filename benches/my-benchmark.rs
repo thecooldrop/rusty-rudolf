@@ -3,12 +3,12 @@ use ndarray::{Array2, Array3};
 use rusty_rudolf::kalman;
 
 pub fn kalman_predict_benchmark(c: &mut Criterion) {
-    let kf = kalman::KalmanFilter::<f64> {
-        observation_matrix: Array2::eye(8),
-        observation_covariance: Array2::eye(8),
-        transition_matrix: Array2::eye(8),
-        transition_covariance: Array2::eye(8),
-    };
+    let kf = kalman::KalmanFilter::<f64>::new(
+        &Array2::eye(8),
+        &Array2::eye(8),
+        &Array2::eye(8),
+        &Array2::eye(8),
+    ).unwrap();
     c.bench_function("Kalman filter predict for 1000 inputs", |b| {
         b.iter(|| {
             kf.predict(
@@ -20,12 +20,12 @@ pub fn kalman_predict_benchmark(c: &mut Criterion) {
 }
 
 pub fn kalman_update_benchmark(c: &mut Criterion) {
-    let kf = kalman::KalmanFilter::<f64> {
-        observation_matrix: Array2::eye(8),
-        observation_covariance: Array2::eye(8),
-        transition_matrix: Array2::eye(8),
-        transition_covariance: Array2::eye(8),
-    };
+    let kf = kalman::KalmanFilter::<f64>::new(
+        &Array2::eye(8),
+        &Array2::eye(8),
+        &Array2::eye(8),
+        &Array2::eye(8),
+    ).unwrap();
     c.bench_function(
         "Kalman update for updating 1000 inputs with 10 measurements, totaling in 10000 updates",
         |b| {
