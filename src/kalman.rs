@@ -1,23 +1,24 @@
-use ndarray::{Array2, Array3, Axis, ShapeBuilder};
+use ndarray::{Array2, Array3, Axis, Data, ArrayBase, Ix2, Ix3};
 use ndarray_linalg::InverseC;
 use std::ops::AddAssign;
 use std::ops::SubAssign;
-use std::iter::FromIterator;
+use cauchy::Scalar;
+use ndarray_linalg::lapack::Lapack;
 
-pub struct KalmanFilterWithoutControl {
-    pub transition_matrix: Array2<f64>,
-    pub observation_matrix: Array2<f64>,
-    pub transition_covariance: Array2<f64>,
-    pub observation_covariance: Array2<f64>,
+pub struct KalmanFilterWithoutControl<T: Scalar + Lapack> {
+    pub transition_matrix: Array2<T>,
+    pub observation_matrix: Array2<T>,
+    pub transition_covariance: Array2<T>,
+    pub observation_covariance: Array2<T>,
 }
 
-impl KalmanFilterWithoutControl {
+impl<T:Scalar + Lapack> KalmanFilterWithoutControl<T> {
 
-    pub fn predict(
+    pub fn predict<A: Data<Elem = T>>(
         &self,
-        states: &Array2<f64>,
-        covariances: &Array3<f64>,
-    ) -> (Array2<f64>, Array3<f64>) {
+        states: &ArrayBase<A, Ix2>,
+        covariances: &ArrayBase<A, Ix3>,
+    ) -> (Array2<T>, Array3<T>) {
         let predicted_states = self.transition_matrix.dot(&states.t()).t().to_owned();
         unsafe {
             let mut predicted_covariances = Array3::uninitialized(covariances.raw_dim());
@@ -38,10 +39,10 @@ impl KalmanFilterWithoutControl {
 
     pub fn update(
         &self,
-        states: &Array2<f64>,
-        covariances: &Array3<f64>,
-        measurements: &Array2<f64>,
-    ) -> (Array3<f64>, Array3<f64>) {
+        states: &Array2<T>,
+        covariances: &Array3<T>,
+        measurements: &Array2<T>,
+    ) -> (Array3<T>, Array3<T>) {
         let expected_measurements = self.observation_matrix.dot(&states.t()).t().into_owned();
         let innovations = self.innovations(measurements, &expected_measurements);
         let l_matrices = self.l_matrices(covariances);
@@ -56,7 +57,7 @@ impl KalmanFilterWithoutControl {
         return (updated_states, updated_covs);
     }
 
-    fn l_matrices(&self, covariances: &Array3<f64>) -> Array3<f64> {
+    fn l_matrices(&self, covariances: &Array3<T>) -> Array3<T> {
         let cov_dims = covariances.dim();
         let l_matrix_dim = [cov_dims.0, cov_dims.1, self.observation_matrix.dim().1];
         let mut l_matrices = Array3::zeros(l_matrix_dim);
@@ -67,7 +68,7 @@ impl KalmanFilterWithoutControl {
         l_matrices
     }
 
-    fn u_matrices(&self, l_matrices: &Array3<f64>) -> Array3<f64> {
+    fn u_matrices(&self, l_matrices: &Array3<T>) -> Array3<T> {
         let l_dim = l_matrices.dim();
         let r_dim = self.observation_covariance.dim();
         let u_dim = [l_dim.0, r_dim.0, r_dim.1];
@@ -78,11 +79,11 @@ impl KalmanFilterWithoutControl {
         u_matrices
     }
 
-    fn innovations(&self, measurements: &Array2<f64>, expected_measurements: &Array2<f64>) -> Array3<f64> {
+    fn innovations(&self, measurements: &Array2<T>, expected_measurements: &Array2<T>) -> Array3<T> {
         let meas_dim = measurements.dim();
         let state_count = expected_measurements.dim().0;
         let innovation_dim = [meas_dim.0, state_count, meas_dim.1];
-        let mut innovations: Array3<f64> = measurements.clone().insert_axis(Axis(1)).broadcast(innovation_dim).unwrap().to_owned();
+        let mut innovations: Array3<T> = measurements.clone().insert_axis(Axis(1)).broadcast(innovation_dim).unwrap().to_owned();
         for mut inno_view in innovations.outer_iter_mut()
         {
             inno_view.sub_assign(expected_measurements);
@@ -90,7 +91,7 @@ impl KalmanFilterWithoutControl {
         innovations
     }
 
-    fn kalman_gains(&self, l_matrices: &Array3<f64>, u_matrices_inv: &Array3<f64>) -> Array3<f64> {
+    fn kalman_gains(&self, l_matrices: &Array3<T>, u_matrices_inv: &Array3<T>) -> Array3<T> {
         let l_dim = l_matrices.dim();
         let u_dim = u_matrices_inv.dim();
         let kalman_gain_dim = [l_dim.0, l_dim.1, u_dim.1];
@@ -101,7 +102,7 @@ impl KalmanFilterWithoutControl {
         kalman_gains
     }
 
-    fn update_states(&self, states: &Array2<f64>, kalman_gains: &Array3<f64>, innovations: &Array3<f64>) -> Array3<f64> {
+    fn update_states(&self, states: &Array2<T>, kalman_gains: &Array3<T>, innovations: &Array3<T>) -> Array3<T> {
         let num_measurements = innovations.dim().0;
         let state_dim = states.dim();
         let updated_states_dim = [num_measurements, state_dim.0, state_dim.1];
@@ -120,11 +121,14 @@ impl KalmanFilterWithoutControl {
         broadcast_states_updated
     }
 
-    fn update_covariances(&self, covariances: &Array3<f64> ,kalman_gains: &Array3<f64>, l_matrices: &Array3<f64>) -> Array3<f64> {
-        let mut updated_covariances = covariances.clone();
-        for ((mut elem, kalman_gain), l) in updated_covariances.outer_iter_mut().zip(kalman_gains.outer_iter()).zip(l_matrices.outer_iter()) {
-            let intermediate = &kalman_gain.dot(&l.t());
-            elem.sub_assign(intermediate);
+    fn update_covariances(&self, covariances: &Array3<T> ,kalman_gains: &Array3<T>, l_matrices: &Array3<T>) -> Array3<T> {
+        let mut updated_covariances = Array3::zeros(covariances.raw_dim());
+        for (((mut elem, kalman_gain), l), p) in updated_covariances.outer_iter_mut()
+            .zip(kalman_gains.outer_iter())
+            .zip(l_matrices.outer_iter())
+            .zip(covariances.outer_iter()) {
+            let intermediate = &p - &kalman_gain.dot(&l.t());
+            elem.assign(&intermediate);
         }
         updated_covariances
     }

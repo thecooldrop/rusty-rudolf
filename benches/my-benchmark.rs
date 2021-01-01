@@ -3,7 +3,7 @@ use ndarray::{Array2, Array3};
 use rusty_rudolf::kalman;
 
 pub fn kalman_predict_benchmark(c: &mut Criterion) {
-    let kf = kalman::KalmanFilterWithoutControl {
+    let kf = kalman::KalmanFilterWithoutControl::<f64> {
         observation_matrix: Array2::eye(8),
         observation_covariance: Array2::eye(8),
         transition_matrix: Array2::eye(8),
@@ -20,7 +20,7 @@ pub fn kalman_predict_benchmark(c: &mut Criterion) {
 }
 
 pub fn kalman_update_benchmark(c: &mut Criterion) {
-    let kf = kalman::KalmanFilterWithoutControl {
+    let kf = kalman::KalmanFilterWithoutControl::<f64> {
         observation_matrix: Array2::eye(8),
         observation_covariance: Array2::eye(8),
         transition_matrix: Array2::eye(8),
