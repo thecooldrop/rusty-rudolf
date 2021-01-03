@@ -13,7 +13,59 @@ pub struct KalmanFilter<T: Scalar + Lapack> {
     observation_covariance: Array2<T>,
 }
 
+pub trait Filter<T: Scalar + Lapack> {
+    type Prediction;
+    type Update;
+    fn predict<A: Data<Elem=T>, B: Data<Elem=T>>(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<B, Ix3>) -> Self::Prediction;
+    fn update<A: Data<Elem=T>, B: Data<Elem=T>, C: Data<Elem=T>>(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<B, Ix3>, measurements: &ArrayBase<C, Ix2>) -> Self::Update;
+}
+
+impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
+    type Prediction = (Array2<T>, Array3<T>);
+    type Update = (Array3<T>, Array3<T>);
+
+    fn predict<A: Data<Elem=T>, B: Data<Elem=T>>(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<B, Ix3>) -> Self::Prediction {
+        let predicted_states = self.transition_matrix.dot(&states.t()).t().to_owned();
+        unsafe {
+            let mut predicted_covariances = Array3::uninitialized(covariances.raw_dim());
+            let predicted_covariances_iter = predicted_covariances.outer_iter_mut();
+            let input_covariances_iter = covariances.outer_iter();
+            for (mut output_view, input) in predicted_covariances_iter.zip(input_covariances_iter) {
+                output_view.assign(
+                    &(self
+                        .transition_matrix
+                        .dot(&input)
+                        .dot(&self.transition_matrix.t())
+                        + &self.transition_covariance),
+                );
+            }
+            (predicted_states, predicted_covariances)
+        }
+    }
+
+    fn update<A: Data<Elem=T>, B: Data<Elem=T>, C: Data<Elem=T>>(
+        &self,
+        states: &ArrayBase<A, Ix2>,
+        covariances: &ArrayBase<B, Ix3>,
+        measurements: &ArrayBase<C, Ix2>,
+    ) -> (Array3<T>, Array3<T>) {
+        let expected_measurements = self.observation_matrix.dot(&states.t()).t().into_owned();
+        let innovations = self.innovations(measurements, &expected_measurements);
+        let l_matrices = self.l_matrices(covariances);
+        let u_matrices = self.u_matrices(&l_matrices);
+        let mut u_matrices_inv = u_matrices.to_owned();
+        for mut elem in u_matrices_inv.outer_iter_mut() {
+            elem.assign(&elem.invc().unwrap());
+        }
+        let kalman_gains = self.kalman_gains(&l_matrices, &u_matrices_inv);
+        let updated_states = self.update_states(states, &kalman_gains, &innovations);
+        let updated_covs = self.update_covariances(covariances, &kalman_gains, &l_matrices);
+        return (updated_states, updated_covs);
+    }
+}
+
 impl<T: Scalar + Lapack> KalmanFilter<T> {
+
     pub fn new<A: Data<Elem=T>>(transition_matrix: &ArrayBase<A, Ix2>,
                                 observation_matrix: &ArrayBase<A, Ix2>,
                                 transition_covariance: &ArrayBase<A, Ix2>,
@@ -60,55 +112,13 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
 
     fn is_not_square<A: Data<Elem=T>>(arr: &ArrayBase<A, Ix2>) -> Result<(), ShapeError> {
         let arr_dim = arr.dim();
-        if arr_dim.0 == arr_dim.1 {
+        if arr_dim.0 != arr_dim.1 {
             return Result::Err(ShapeError::from_kind(ErrorKind::IncompatibleShape));
         }
 
         Ok(())
     }
 
-    pub fn predict<A: Data<Elem=T>>(
-        &self,
-        states: &ArrayBase<A, Ix2>,
-        covariances: &ArrayBase<A, Ix3>,
-    ) -> (Array2<T>, Array3<T>) {
-        let predicted_states = self.transition_matrix.dot(&states.t()).t().to_owned();
-        unsafe {
-            let mut predicted_covariances = Array3::uninitialized(covariances.raw_dim());
-            let predicted_covariances_iter = predicted_covariances.outer_iter_mut();
-            let input_covariances_iter = covariances.outer_iter();
-            for (mut output_view, input) in predicted_covariances_iter.zip(input_covariances_iter) {
-                output_view.assign(
-                    &(self
-                        .transition_matrix
-                        .dot(&input)
-                        .dot(&self.transition_matrix.t())
-                        + &self.transition_covariance),
-                );
-            }
-            (predicted_states, predicted_covariances)
-        }
-    }
-
-    pub fn update<A: Data<Elem=T>, B: Data<Elem=T>, C: Data<Elem=T>>(
-        &self,
-        states: &ArrayBase<A, Ix2>,
-        covariances: &ArrayBase<B, Ix3>,
-        measurements: &ArrayBase<C, Ix2>,
-    ) -> (Array3<T>, Array3<T>) {
-        let expected_measurements = self.observation_matrix.dot(&states.t()).t().into_owned();
-        let innovations = self.innovations(measurements, &expected_measurements);
-        let l_matrices = self.l_matrices(covariances);
-        let u_matrices = self.u_matrices(&l_matrices);
-        let mut u_matrices_inv = u_matrices.to_owned();
-        for mut elem in u_matrices_inv.outer_iter_mut() {
-            elem.assign(&elem.invc().unwrap());
-        }
-        let kalman_gains = self.kalman_gains(&l_matrices, &u_matrices_inv);
-        let updated_states = self.update_states(states, &kalman_gains, &innovations);
-        let updated_covs = self.update_covariances(covariances, &kalman_gains, &l_matrices);
-        return (updated_states, updated_covs);
-    }
 
     fn l_matrices<A: Data<Elem=T>>(&self, covariances: &ArrayBase<A, Ix3>) -> Array3<T> {
         let cov_dims = covariances.dim();
