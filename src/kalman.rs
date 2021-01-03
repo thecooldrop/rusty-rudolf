@@ -42,7 +42,6 @@ impl<T:Scalar + Lapack> KalmanFilter<T> {
     {
         let transition_matrix_dim = transition_matrix.dim();
         let observation_matrix_dim = observation_matrix.dim();
-        let transition_covariance_dim = transition_covariance.dim();
         let observation_covariance_dim = observation_covariance.dim();
 
         if observation_matrix_dim.1 != transition_matrix_dim.1 {
@@ -53,19 +52,20 @@ impl<T:Scalar + Lapack> KalmanFilter<T> {
             return Result::Err(ShapeError::from_kind(ErrorKind::IncompatibleShape));
         }
 
-        if transition_matrix_dim.0 != transition_covariance_dim.0 {
-            return Result::Err(ShapeError::from_kind(ErrorKind::IncompatibleShape));
-        }
-
-        if transition_covariance_dim.0 != transition_covariance_dim.1 {
-            return Result::Err(ShapeError::from_kind(ErrorKind::IncompatibleShape));
-        }
-
-        if observation_covariance_dim.0 != observation_covariance_dim.1 {
-            return Result::Err(ShapeError::from_kind(ErrorKind::IncompatibleShape));
-        }
+        Self::is_not_square(transition_matrix)?;
+        Self::is_not_square(transition_covariance)?;
+        Self::is_not_square(observation_covariance)?;
 
         Result::Ok(())
+    }
+
+    fn is_not_square<A: Data<Elem=T>>(arr: &ArrayBase<A, Ix2>) -> Result<(), ShapeError> {
+        let arr_dim = arr.dim();
+        if arr_dim.0 == arr_dim.1 {
+            return Result::Err(ShapeError::from_kind(ErrorKind::IncompatibleShape));
+        }
+
+        Ok(())
     }
 
     pub fn predict<A: Data<Elem = T>>(
