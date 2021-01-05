@@ -1,6 +1,4 @@
-use std::ops::AddAssign;
-use std::ops::SubAssign;
-
+use std::ops::{AddAssign, SubAssign};
 use cauchy::Scalar;
 use ndarray::{Array2, Array3, ArrayBase, Axis, Data, ErrorKind, Ix2, Ix3, ShapeError};
 use ndarray_linalg::InverseC;
@@ -60,7 +58,7 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         let kalman_gains = self.kalman_gains(&l_matrices, &u_matrices_inv);
         let updated_states = self.update_states(states, &kalman_gains, &innovations);
         let updated_covs = self.update_covariances(covariances, &kalman_gains, &l_matrices);
-        return (updated_states, updated_covs);
+        (updated_states, updated_covs)
     }
 }
 
