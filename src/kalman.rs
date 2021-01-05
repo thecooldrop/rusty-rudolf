@@ -1,9 +1,21 @@
-use std::ops::{AddAssign, SubAssign};
+//! This module contains the implementation of Kalman filtering algorithms, as well as traits
+//! which are used to encapsulate the functionality of filtering algorithms.
+use std::ops::{AddAssign, SubAssign, Deref};
 use cauchy::Scalar;
-use ndarray::{Array2, Array3, ArrayBase, Axis, Data, ErrorKind, Ix2, Ix3, ShapeError};
+use ndarray::{Array2, Array3, ArrayBase, Axis, Data, ErrorKind, Ix2, Ix3, ShapeError, Array4};
 use ndarray_linalg::InverseC;
 use ndarray_linalg::lapack::Lapack;
 
+
+/// Basic linear Kalman filtering algorithm
+///
+/// This type encapsulates basic linear Kalman filtering algorithm. This implementation depends
+/// on four arrays, which represent the operational parameters necessary for this algorithm.
+/// As some assumption have to hold with respect to dimensions of arrays, please use the associated
+/// function `KalmanFilter::new` to initialize an instance of Kalman filter.
+///
+/// Type parameter `T: Scalar + Lapack` is used to indicate that Kalman filter can contain any
+/// matrices, which are considered to contain numbers ( i.e real or complex numbers ).
 pub struct KalmanFilter<T: Scalar + Lapack> {
     transition_matrix: Array2<T>,
     observation_matrix: Array2<T>,
@@ -11,15 +23,67 @@ pub struct KalmanFilter<T: Scalar + Lapack> {
     observation_covariance: Array2<T>,
 }
 
+/// Filtering algorithm trait
+///
+/// This trait indicates that implementor is a representation of a filtering algorithm, and
+/// that it performs filtering operations on inputs of type `T: Scalar + Lapack`.
+/// It can be used to represent general filtering algorithms, which are usually split into
+/// prediction and update steps.
 pub trait Filter<T: Scalar + Lapack> {
+    /// Result of prediction operation executed on states
     type Prediction;
+    /// Result of update operation executed on states
     type Update;
+
+    /// Prediction operation executed by filtering algorithm.
+    ///
+    /// The prediction operation result produces the predicted values for states and their
+    /// associated covariances. Usually the result of prediction is a 2-tuple of n-arrays, whose
+    /// entries usually represent predicted states and covariances respectfully.
+    ///
+    /// Note that this method has two parameters, whose meanings are as follows:
+    /// * states - A two-dimensional array of numbers, where each row represents a state
+    /// * covariances - A three-dimensional array of numbers, where each entry along first axis
+    /// represents a covariance matrix
+    ///
+    /// The generic parameters on this method indicate that it is applicable to any combination of
+    /// ndarray arrays, which own their data.
     fn predict<A: Data<Elem=T>, B: Data<Elem=T>>(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<B, Ix3>) -> Self::Prediction;
+
+    /// Update operation executed by filtering algorithm.
+    ///
+    /// The update operation result produces the updates values for states and their
+    /// associated covariances. Usually the result of update is a 2-tuple of nd-arrays, whose
+    /// entries usually represent updates states and covariances respectfully.
+    ///
+    /// This method has three parameters:
+    /// * states - A two-dimensional array of numbers, where each row represents a state
+    /// * covariances - A three-dimensional array of numbers, where each entry along first axis
+    /// represents a covariance matrix
+    /// * mesurements - A two-dimensional array of numbers, where each row represents a measurement
+    /// of a state
+    ///
+    /// It is expected that number of entries along first axis of states and covariances is equal,
+    /// roughly speaking we expect that there is same number of state and covariance matrices given.
+    /// The i-th state row has covariance matrix given by i-th entry of covariances matrix.
+    ///
+    /// This method is expected to update each (state,covariance) pair with all of the measurements
     fn update<A: Data<Elem=T>, B: Data<Elem=T>, C: Data<Elem=T>>(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<B, Ix3>, measurements: &ArrayBase<C, Ix2>) -> Self::Update;
 }
 
+/// Implementation of filtering methods for Kalman filter
 impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
+    /// Kalman filter produces predictions, which are 2-tuples. First element of the tuple is
+    /// an array representing predicted states, while second element represents the predicted
+    /// an array of matrices representing predicted covariances.
     type Prediction = (Array2<T>, Array3<T>);
+
+    /// Updated values produced by Kalman filter are represented by two three-dimensional arrays.
+    /// The first array in tuple represents the updated states. The (i,j)-th row in first matrix in
+    /// tuple represents j-th state row updated with i-th measurement row. The j-th matrix in
+    /// second matrix in tuple represents the covariance matrices for all updated values of j-th
+    /// states ( or pedantically speaking the j-th matrix in second matrix in tuple represents
+    /// the covariance matrix of (i,j)-th rows of updated states, for all i.
     type Update = (Array3<T>, Array3<T>);
 
     fn predict<A: Data<Elem=T>, B: Data<Elem=T>>(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<B, Ix3>) -> Self::Prediction {
@@ -64,6 +128,16 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
 
 impl<T: Scalar + Lapack> KalmanFilter<T> {
 
+    /// Creates new Kalman filter with given matrices
+    ///
+    /// This constructor expects following conditions to hold:
+    /// * covariance matrices should be square
+    /// * outer dimensions of observation and transition matrix are equal. This ensures that
+    /// given observation matrix can be used as left factor in multiplication with states.
+    /// * inner dimensions of observation matrix and observation covariance are equal
+    ///
+    /// If any of the conditions is not upheld, then the return value is the error variant,
+    /// otherwise a well-formed Kalman filter is returned.
     pub fn new<A: Data<Elem=T>>(transition_matrix: &ArrayBase<A, Ix2>,
                                 observation_matrix: &ArrayBase<A, Ix2>,
                                 transition_covariance: &ArrayBase<A, Ix2>,
@@ -116,7 +190,6 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
 
         Ok(())
     }
-
 
     fn l_matrices<A: Data<Elem=T>>(&self, covariances: &ArrayBase<A, Ix3>) -> Array3<T> {
         let cov_dims = covariances.dim();
