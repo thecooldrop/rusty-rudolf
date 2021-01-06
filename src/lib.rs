@@ -14,8 +14,8 @@
 //! (including many varieties of it), as well as their smoothing-algorithm counterparts such
 //! as Rauch-Tung-Striebel Smoother (RTS-Smoother) and many others.
 pub mod kalman;
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+// #[global_allocator]
+// static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[cfg(test)]
 mod tests {
     #[test]

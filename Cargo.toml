@@ -13,7 +13,7 @@ ndarray = { version = "0.13.0", features = ["blas"] }
 ndarray-linalg = { version = "0.12", features = ["openblas"] }
 lapack-src = { version = "0.6", features = ["openblas"] }
 cauchy = "0.2.2"
-mimalloc = { version = "0.1.17", default-features = false }
+#mimalloc = { version = "0.1.17", default-features = false }
 [dev-dependencies]
 criterion = "0.3"
 
