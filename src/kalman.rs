@@ -1,8 +1,8 @@
 //! This module contains the implementation of Kalman filtering algorithms, as well as traits
 //! which are used to encapsulate the functionality of filtering algorithms.
-use std::ops::{AddAssign, SubAssign, Deref};
+use std::ops::{AddAssign, SubAssign};
 use cauchy::Scalar;
-use ndarray::{Array2, Array3, ArrayBase, Axis, Data, ErrorKind, Ix2, Ix3, ShapeError, Array4};
+use ndarray::{Array2, Array3, ArrayBase, Axis, Data, ErrorKind, Ix2, Ix3, ShapeError};
 use ndarray_linalg::InverseC;
 use ndarray_linalg::lapack::Lapack;
 
@@ -264,5 +264,101 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
             elem.sub_assign(&intermediate);
         }
         updated_covariances
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transition_covariance_matrix_has_to_be_square() -> Result<(), String> {
+        let kf = KalmanFilter::<f64>::new(&Array2::eye(8),
+                                          &Array2::eye(8),
+                                          &Array2::ones([8, 7]),
+                                          &Array2::eye(8));
+        match kf {
+            Result::Err(_) => return Result::Ok(()),
+            _ => return Result::Err("Kalman filter can not accept non-square matrix as transition covariance matrix".to_string()),
+        };
+    }
+
+    #[test]
+    fn observation_covariance_matrix_has_to_be_square() -> Result<(), String> {
+        let kf = KalmanFilter::<f64>::new(&Array2::eye(8),
+                                          &Array2::eye(8),
+                                          &Array2::eye(8),
+                                          &Array2::ones([8,7]));
+        match kf {
+            Result::Err(_) => return Result::Ok(()),
+            _ => return Result::Err("Kalman filter can not accept non-square matrix as observation covariance matrix".to_string()),
+        };
+    }
+
+    #[test]
+    fn transition_matrix_has_to_be_square() -> Result<(), String> {
+        let kf = KalmanFilter::<f64>::new(&Array2::ones([7,8]),
+                                          &Array2::eye(8),
+                                          &Array2::eye(8),
+                                          &Array2::eye(8));
+        match kf {
+            Result::Err(_) => return Result::Ok(()),
+            _ => return Result::Err("Kalman filter can not accept non-square matrix as transition matrix".to_string()),
+        };
+    }
+
+    #[test]
+    fn outer_dimensions_of_transition_and_observation_matrix_have_to_match() -> Result<(), String> {
+        let eye8 = &Array2::eye(8);
+        let eye7 = &Array2::eye(7);
+        let kf = KalmanFilter::<f64>::new(eye8, eye7, eye8, eye8);
+        match kf {
+            Result::Err(_) => return Result::Ok(()),
+            _ => return Result::Err("Outer dimensions of transition and observation matrix should have to be equal".to_string())
+        }
+    }
+
+    #[test]
+    fn inner_dimensions_of_observation_matrix_and_observation_covariance_have_to_match() -> Result<(), String> {
+        let eye8 = &Array2::eye(8);
+        let eye7 = &Array2::eye(7);
+        let kf = KalmanFilter::<f64>::new(eye8, eye8, eye8, eye7);
+        match kf {
+            Result::Err(_) => return Result::Ok(()),
+            _ => return Result::Err("Inner dimensions of observation covariance matrix and observation matrix should have to be equal".to_string())
+        }
+    }
+
+    #[test]
+    fn dimension_of_returned_prediction_matches_dimensions_of_input() -> Result<(), String> {
+        let eye8 = &Array2::eye(8);
+        let kf = KalmanFilter::<f64>::new(eye8, eye8, eye8, eye8).unwrap();
+        let states = Array2::ones([100,8]);
+        let covariances = Array3::ones([100, 8,8]);
+        let (predicted_states, predicted_covariances) = kf.predict(&states, &covariances);
+        if states.dim().eq(&predicted_states.dim()) && covariances.dim().eq(&predicted_covariances.dim()) {
+            Ok(())
+        } else {
+            Err("Predicted states and covariances do not have same dimensions as inputs".to_string())
+        }
+    }
+
+    #[test]
+    fn dimensions_of_updates_are_multipled_by_number_of_measurements() -> Result<(), String> {
+        let eye8 = &Array2::eye(8);
+        let kf = KalmanFilter::<f64>::new(eye8, eye8, eye8, eye8).unwrap();
+        let states = Array2::ones([100,8]);
+        let covariances = Array3::ones([100, 8, 8]);
+        let measurements = Array2::ones([10,8]);
+        let (updated_states, updated_covs) = kf.update(&states, &covariances, &measurements);
+
+        let expected_dimension_state = (10, 100, 8);
+        let expected_dimension_covs = (100, 8, 8);
+
+        if updated_states.dim().eq(&expected_dimension_state) && updated_covs.dim().eq(&expected_dimension_covs) {
+            Ok(())
+        } else {
+            Err("The dimension of updated states and covariances does not match the expectation".to_string())
+        }
     }
 }
