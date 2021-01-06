@@ -1,3 +1,4 @@
+
 #![crate_name = "rusty_rudolf"]
 //! The `rusty-rudolf` crate contains implementations of filtering algorithms used for state
 //! estimation and for solving general filtering problems. Goal of the crate is provide
@@ -13,7 +14,8 @@
 //! (including many varieties of it), as well as their smoothing-algorithm counterparts such
 //! as Rauch-Tung-Striebel Smoother (RTS-Smoother) and many others.
 pub mod kalman;
-
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[cfg(test)]
 mod tests {
     #[test]

@@ -13,6 +13,7 @@ ndarray = { version = "0.13.0", features = ["blas"] }
 ndarray-linalg = { version = "0.12", features = ["openblas"] }
 lapack-src = { version = "0.6", features = ["openblas"] }
 cauchy = "0.2.2"
+mimalloc = { version = "0.1.17", default-features = false }
 [dev-dependencies]
 criterion = "0.3"
 
@@ -20,3 +21,7 @@ criterion = "0.3"
 name = "my_benchmark"
 harness = false
 path="./benches/my-benchmark.rs"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
