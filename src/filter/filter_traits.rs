@@ -8,7 +8,7 @@ use ndarray::{Data, ArrayBase, Ix2, Ix3};
 /// that it performs filtering operations on inputs of type `T: Scalar + Lapack`.
 /// It can be used to represent general filtering algorithms, which are usually split into
 /// prediction and update steps.
-pub trait Filter<T: Scalar + Lapack, A: Data<Elem=T>> {
+pub trait Filter<T: Scalar + Lapack> {
     /// Result of prediction operation executed on states
     type Prediction;
     /// Result of update operation executed on states
@@ -27,7 +27,7 @@ pub trait Filter<T: Scalar + Lapack, A: Data<Elem=T>> {
     ///
     /// The generic parameters on this method indicate that it is applicable to any combination of
     /// ndarray arrays, which own their data.
-    fn predict(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<A, Ix3>) -> Self::Prediction;
+    fn predict<A: Data<Elem=T>, B: Data<Elem=T>>(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<B, Ix3>) -> Self::Prediction;
 
     /// Update operation executed by filtering algorithm.
     ///
@@ -47,5 +47,5 @@ pub trait Filter<T: Scalar + Lapack, A: Data<Elem=T>> {
     /// The i-th state row has covariance matrix given by i-th entry of covariances matrix.
     ///
     /// This method is expected to update each (state,covariance) pair with all of the measurements
-    fn update(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<A, Ix3>, measurements: &ArrayBase<A, Ix2>) -> Self::Update;
+    fn update<A: Data<Elem=T>, B: Data<Elem=T>, C: Data<Elem=T>>(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<B, Ix3>, measurements: &ArrayBase<C, Ix2>) -> Self::Update;
 }

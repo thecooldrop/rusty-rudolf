@@ -26,7 +26,7 @@ pub struct KalmanFilter<T: Scalar + Lapack> {
 
 
 /// Implementation of filtering methods for Kalman filter
-impl<T: Scalar + Lapack, A: Data<Elem=T>> Filter<T, A> for KalmanFilter<T> {
+impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
     /// Kalman filter produces predictions, which are 2-tuples. First element of the tuple is
     /// an array representing predicted states, while second element represents the predicted
     /// an array of matrices representing predicted covariances.
@@ -40,7 +40,7 @@ impl<T: Scalar + Lapack, A: Data<Elem=T>> Filter<T, A> for KalmanFilter<T> {
     /// the covariance matrix of (i,j)-th rows of updated states, for all i.
     type Update = (Array3<T>, Array3<T>);
 
-    fn predict(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<A, Ix3>) -> Self::Prediction {
+    fn predict<A: Data<Elem=T>, B: Data<Elem=T>>(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<B, Ix3>) -> Self::Prediction {
         let predicted_states = self.transition_matrix.dot(&states.t()).t().to_owned();
         unsafe {
             let mut predicted_covariances = Array3::uninitialized(covariances.raw_dim());
@@ -59,11 +59,11 @@ impl<T: Scalar + Lapack, A: Data<Elem=T>> Filter<T, A> for KalmanFilter<T> {
         }
     }
 
-    fn update(
+    fn update<A: Data<Elem=T>, B: Data<Elem=T>, C: Data<Elem=T>>(
         &self,
         states: &ArrayBase<A, Ix2>,
-        covariances: &ArrayBase<A, Ix3>,
-        measurements: &ArrayBase<A, Ix2>,
+        covariances: &ArrayBase<B, Ix3>,
+        measurements: &ArrayBase<C, Ix2>,
     ) -> (Array3<T>, Array3<T>) {
         let expected_measurements = self.observation_matrix.dot(&states.t()).t().into_owned();
         let innovations = self.innovations(measurements, &expected_measurements);
