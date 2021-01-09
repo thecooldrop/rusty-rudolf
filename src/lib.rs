@@ -13,7 +13,7 @@
 //! filter (EKF), Unscented Kalman filter (UKF), cubature Kalman filters, particle filters
 //! (including many varieties of it), as well as their smoothing-algorithm counterparts such
 //! as Rauch-Tung-Striebel Smoother (RTS-Smoother) and many others.
-pub mod kalman;
+pub mod filter;
 // #[global_allocator]
 // static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[cfg(test)]

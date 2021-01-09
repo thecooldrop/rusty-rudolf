@@ -1,10 +1,10 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use ndarray::{Array2, Array3};
-use rusty_rudolf::kalman;
-use rusty_rudolf::kalman::Filter;
+use rusty_rudolf::filter;
+use rusty_rudolf::filter::filter_traits::Filter;
 
 pub fn kalman_predict_benchmark(c: &mut Criterion) {
-    let kf = kalman::KalmanFilter::<f64>::new(
+    let kf = filter::kalman::KalmanFilter::<f64>::new(
         &Array2::eye(8),
         &Array2::eye(8),
         &Array2::eye(8),
@@ -21,7 +21,7 @@ pub fn kalman_predict_benchmark(c: &mut Criterion) {
 }
 
 pub fn kalman_update_benchmark(c: &mut Criterion) {
-    let kf = kalman::KalmanFilter::<f64>::new(
+    let kf = filter::kalman::KalmanFilter::<f64>::new(
         &Array2::eye(8),
         &Array2::eye(8),
         &Array2::eye(8),
