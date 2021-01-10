@@ -1,4 +1,4 @@
-use ndarray::{Ix1, Ix2, Ix3, Dimension, ArrayBase, Data, OwnedRepr, Array2, Array3, ArrayViewMut1, ArrayViewMut};
+use ndarray::{Ix1, Ix2, Ix3, Dimension, ArrayBase, Data, OwnedRepr, Array2, Array3, ArrayView, ArrayView1};
 use cauchy::Scalar;
 use ndarray_linalg::Lapack;
 use crate::filter::filter_traits::Filter;
@@ -9,8 +9,8 @@ use std::marker::PhantomData;
 pub struct AdditiveExtendedKalmanFilter<Num, Dim, Trans, Jacobi> where
     Num: Scalar + Lapack,
     Dim: Dimension,
-    Trans: Fn(&ArrayViewMut<Num, Dim>) -> ArrayBase<OwnedRepr<Num>, Dim>,
-    Jacobi: Fn(&ArrayViewMut<Num, Dim>) -> ArrayBase<OwnedRepr<Num>, Dim::Larger>
+    Trans: Fn(&ArrayView<Num, Dim>) -> ArrayBase<OwnedRepr<Num>, Dim>,
+    Jacobi: Fn(&ArrayView<Num, Dim>) -> ArrayBase<OwnedRepr<Num>, Dim::Larger>
 {
     dimension_phantom: PhantomData<Dim>,
     transition_function: Trans,
@@ -20,8 +20,8 @@ pub struct AdditiveExtendedKalmanFilter<Num, Dim, Trans, Jacobi> where
 
 impl<Num, Trans, Jacobi> Filter<Num> for AdditiveExtendedKalmanFilter<Num, Ix1, Trans, Jacobi> where
     Num: Scalar + Lapack,
-    Trans: Fn(&ArrayViewMut1<Num>) -> ArrayBase<OwnedRepr<Num>, Ix1>,
-    Jacobi: Fn(&ArrayViewMut1<Num>) -> ArrayBase<OwnedRepr<Num>, Ix2>
+    Trans: Fn(&ArrayView1<Num>) -> ArrayBase<OwnedRepr<Num>, Ix1>,
+    Jacobi: Fn(&ArrayView1<Num>) -> ArrayBase<OwnedRepr<Num>, Ix2>
 {
     type Prediction = (Array2<Num>, Array3<Num>);
     type Update = (Array3<Num>, Array3<Num>);
@@ -30,8 +30,8 @@ impl<Num, Trans, Jacobi> Filter<Num> for AdditiveExtendedKalmanFilter<Num, Ix1, 
         let mut predicted_states = Array2::zeros(states.raw_dim());
         let mut state_jacobis : Vec<Array2<Num>> = Vec::new();
         for mut elem in predicted_states.outer_iter_mut() {
-            let intermediate_state = (self.transition_function)(&elem);
-            let state_jacobi = (self.transition_function_jacobian)(&elem);
+            let intermediate_state = (self.transition_function)(&elem.view());
+            let state_jacobi = (self.transition_function_jacobian)(&elem.view());
             state_jacobis.push(state_jacobi);
             elem.assign(&intermediate_state);
         }
