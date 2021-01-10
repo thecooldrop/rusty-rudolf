@@ -1,4 +1,3 @@
-
 #![crate_name = "rusty_rudolf"]
 //! The `rusty-rudolf` crate contains implementations of filtering algorithms used for state
 //! estimation and for solving general filtering problems. Goal of the crate is provide

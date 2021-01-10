@@ -1,6 +1,6 @@
 use cauchy::Scalar;
+use ndarray::{ArrayBase, Data, Ix2, Ix3};
 use ndarray_linalg::Lapack;
-use ndarray::{Data, ArrayBase, Ix2, Ix3};
 
 /// Filtering algorithm trait
 ///
@@ -27,7 +27,11 @@ pub trait Filter<T: Scalar + Lapack> {
     ///
     /// The generic parameters on this method indicate that it is applicable to any combination of
     /// ndarray arrays, which own their data.
-    fn predict<A: Data<Elem=T>, B: Data<Elem=T>>(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<B, Ix3>) -> Self::Prediction;
+    fn predict<A: Data<Elem = T>, B: Data<Elem = T>>(
+        &self,
+        states: &ArrayBase<A, Ix2>,
+        covariances: &ArrayBase<B, Ix3>,
+    ) -> Self::Prediction;
 
     /// Update operation executed by filtering algorithm.
     ///
@@ -47,5 +51,10 @@ pub trait Filter<T: Scalar + Lapack> {
     /// The i-th state row has covariance matrix given by i-th entry of covariances matrix.
     ///
     /// This method is expected to update each (state,covariance) pair with all of the measurements
-    fn update<A: Data<Elem=T>, B: Data<Elem=T>, C: Data<Elem=T>>(&self, states: &ArrayBase<A, Ix2>, covariances: &ArrayBase<B, Ix3>, measurements: &ArrayBase<C, Ix2>) -> Self::Update;
+    fn update<A: Data<Elem = T>, B: Data<Elem = T>, C: Data<Elem = T>>(
+        &self,
+        states: &ArrayBase<A, Ix2>,
+        covariances: &ArrayBase<B, Ix3>,
+        measurements: &ArrayBase<C, Ix2>,
+    ) -> Self::Update;
 }
