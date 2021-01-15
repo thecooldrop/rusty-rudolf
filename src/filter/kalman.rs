@@ -1,6 +1,7 @@
 //! This module contains the implementation of Kalman filtering algorithms, as well as traits
 //! which are used to encapsulate the functionality of filtering algorithms.
 use super::filter_traits::Filter;
+use super::kalman_common::*;
 use cauchy::Scalar;
 use ndarray::{Array2, Array3, ArrayBase, Axis, Data, ErrorKind, Ix2, Ix3, ShapeError};
 use ndarray_linalg::lapack::Lapack;
@@ -44,21 +45,8 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         covariances: &ArrayBase<B, Ix3>,
     ) -> Self::Prediction {
         let predicted_states = self.transition_matrix.dot(&states.t()).t().to_owned();
-        unsafe {
-            let mut predicted_covariances = Array3::uninitialized(covariances.raw_dim());
-            let predicted_covariances_iter = predicted_covariances.outer_iter_mut();
-            let input_covariances_iter = covariances.outer_iter();
-            for (mut output_view, input) in predicted_covariances_iter.zip(input_covariances_iter) {
-                output_view.assign(
-                    &(self
-                        .transition_matrix
-                        .dot(&input)
-                        .dot(&self.transition_matrix.t())
-                        + &self.transition_covariance),
-                );
-            }
-            (predicted_states, predicted_covariances)
-        }
+        let predicted_covariances = quadratic_form_ix2_ix3_ix2_add_ix2(&self.transition_matrix, covariances, &self.transition_matrix.t(), &self.transition_covariance);
+        (predicted_states, predicted_covariances)
     }
 
     fn update<A: Data<Elem = T>, B: Data<Elem = T>, C: Data<Elem = T>>(
@@ -68,14 +56,11 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         measurements: &ArrayBase<C, Ix2>,
     ) -> (Array3<T>, Array3<T>) {
         let expected_measurements = self.observation_matrix.dot(&states.t()).t().into_owned();
-        let innovations = self.innovations(measurements, &expected_measurements);
-        let l_matrices = self.l_matrices(covariances);
-        let u_matrices = self.u_matrices(&l_matrices);
-        let mut u_matrices_inv = u_matrices.to_owned();
-        for mut elem in u_matrices_inv.outer_iter_mut() {
-            elem.assign(&elem.invc().unwrap());
-        }
-        let kalman_gains = self.kalman_gains(&l_matrices, &u_matrices_inv);
+        let innovations = pairwise_difference(measurements, &expected_measurements);
+        let l_matrices = broad_dot_ix3_ix2(&covariances, &self.observation_matrix.t());
+        let u_matrices = innovation_covariances_ix2(&self.observation_matrix, &self.observation_covariance, &l_matrices);
+        let mut u_matrices_inv = invc_all_ix3(&u_matrices);
+        let kalman_gains = broad_dot_ix3_ix3(&l_matrices, &u_matrices_inv);
         let updated_states = self.update_states(states, &kalman_gains, &innovations);
         let updated_covs = self.update_covariances(covariances, &kalman_gains, &l_matrices);
         (updated_states, updated_covs)
@@ -150,68 +135,6 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
         Ok(())
     }
 
-    fn l_matrices<A: Data<Elem = T>>(&self, covariances: &ArrayBase<A, Ix3>) -> Array3<T> {
-        let cov_dims = covariances.dim();
-        let l_matrix_dim = [cov_dims.0, cov_dims.1, self.observation_matrix.dim().1];
-        let mut l_matrices = Array3::zeros(l_matrix_dim);
-        let observation_matrix_transpose = self.observation_matrix.t();
-        for (mut elem, cov) in l_matrices.outer_iter_mut().zip(covariances.outer_iter()) {
-            elem.assign(&cov.dot(&observation_matrix_transpose))
-        }
-        l_matrices
-    }
-
-    fn u_matrices(&self, l_matrices: &Array3<T>) -> Array3<T> {
-        let l_dim = l_matrices.dim();
-        let r_dim = self.observation_covariance.dim();
-        let u_dim = [l_dim.0, r_dim.0, r_dim.1];
-        let mut u_matrices = self
-            .observation_covariance
-            .to_owned()
-            .broadcast(u_dim)
-            .unwrap()
-            .to_owned();
-        for (mut u, l) in u_matrices.outer_iter_mut().zip(l_matrices.outer_iter()) {
-            u.add_assign(&self.observation_matrix.dot(&l));
-        }
-        u_matrices
-    }
-
-    fn innovations<A: Data<Elem = T>>(
-        &self,
-        measurements: &ArrayBase<A, Ix2>,
-        expected_measurements: &Array2<T>,
-    ) -> Array3<T> {
-        let meas_dim = measurements.dim();
-        let state_count = expected_measurements.dim().0;
-        let innovation_dim = [meas_dim.0, state_count, meas_dim.1];
-        let mut innovations: Array3<T> = measurements
-            .to_owned()
-            .insert_axis(Axis(1))
-            .broadcast(innovation_dim)
-            .unwrap()
-            .into_owned();
-        for mut inno_view in innovations.outer_iter_mut() {
-            inno_view.sub_assign(expected_measurements);
-        }
-        innovations
-    }
-
-    fn kalman_gains(&self, l_matrices: &Array3<T>, u_matrices_inv: &Array3<T>) -> Array3<T> {
-        let l_dim = l_matrices.dim();
-        let u_dim = u_matrices_inv.dim();
-        let kalman_gain_dim = [l_dim.0, l_dim.1, u_dim.1];
-        let mut kalman_gains = Array3::zeros(kalman_gain_dim);
-        for ((mut elem, l), u) in kalman_gains
-            .outer_iter_mut()
-            .zip(l_matrices.outer_iter())
-            .zip(u_matrices_inv.outer_iter())
-        {
-            elem.assign(&l.dot(&u));
-        }
-        kalman_gains
-    }
-
     fn update_states<A: Data<Elem = T>>(
         &self,
         states: &ArrayBase<A, Ix2>,
@@ -246,7 +169,7 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
             .zip(kalman_gains.outer_iter())
             .zip(l_matrices.outer_iter())
         {
-            let intermediate = &kalman_gain.dot(&l.t());
+            let intermediate = kalman_gain.dot(&l.t());
             elem.sub_assign(&intermediate);
         }
         updated_covariances
