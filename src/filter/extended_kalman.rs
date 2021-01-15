@@ -38,10 +38,11 @@ where
         let states_dim = states.dim();
         let states_count = states_dim.0;
         let states_length = states_dim.1;
-        let mut state_jacobis = Array3::zeros([states_count, states_length, states_length]);
+        let mut state_jacobis_transposed =
+            Array3::zeros([states_count, states_length, states_length]);
         for (mut state, mut jacobi) in predicted_states
             .outer_iter_mut()
-            .zip(state_jacobis.outer_iter_mut())
+            .zip(state_jacobis_transposed.outer_iter_mut())
         {
             let intermediate_state = (self.transition_function)(&state.view());
             let state_jacobi = (self.transition_function_jacobian)(&state.view());
@@ -56,7 +57,7 @@ where
             .to_owned();
         for (mut cov, jacobi) in predicted_covariances
             .outer_iter_mut()
-            .zip(state_jacobis.outer_iter())
+            .zip(state_jacobis_transposed.outer_iter())
         {
             let predicted_cov = jacobi.dot(&cov).dot(&jacobi.t());
             cov.add_assign(&predicted_cov);
@@ -71,6 +72,5 @@ where
         _covariances: &ArrayBase<B, Ix3>,
         _measurements: &ArrayBase<C, Ix2>,
     ) -> Self::Update {
-        unimplemented!()
     }
 }

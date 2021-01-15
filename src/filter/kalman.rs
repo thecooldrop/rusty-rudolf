@@ -45,7 +45,12 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         covariances: &ArrayBase<B, Ix3>,
     ) -> Self::Prediction {
         let predicted_states = self.transition_matrix.dot(&states.t()).t().to_owned();
-        let predicted_covariances = quadratic_form_ix2_ix3_ix2_add_ix2(&self.transition_matrix, covariances, &self.transition_matrix.t(), &self.transition_covariance);
+        let predicted_covariances = quadratic_form_ix2_ix3_ix2_add_ix2(
+            &self.transition_matrix,
+            covariances,
+            &self.transition_matrix.t(),
+            &self.transition_covariance,
+        );
         (predicted_states, predicted_covariances)
     }
 
@@ -58,7 +63,11 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         let expected_measurements = self.observation_matrix.dot(&states.t()).t().into_owned();
         let innovations = pairwise_difference(measurements, &expected_measurements);
         let l_matrices = broad_dot_ix3_ix2(&covariances, &self.observation_matrix.t());
-        let u_matrices = innovation_covariances_ix2(&self.observation_matrix, &self.observation_covariance, &l_matrices);
+        let u_matrices = innovation_covariances_ix2(
+            &self.observation_matrix,
+            &self.observation_covariance,
+            &l_matrices,
+        );
         let mut u_matrices_inv = invc_all_ix3(&u_matrices);
         let kalman_gains = broad_dot_ix3_ix3(&l_matrices, &u_matrices_inv);
         let updated_states = self.update_states(states, &kalman_gains, &innovations);

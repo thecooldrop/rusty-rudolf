@@ -1,8 +1,8 @@
 use cauchy::Scalar;
 use ndarray::linalg::Dot;
-use ndarray::{Array2, Array3, ArrayBase, Data, Ix2, Ix3, Axis};
-use ndarray_linalg::Lapack;
+use ndarray::{Array2, Array3, ArrayBase, Axis, Data, Ix2, Ix3};
 use ndarray_linalg::InverseC;
+use ndarray_linalg::Lapack;
 use std::ops::{AddAssign, SubAssign};
 
 pub fn broad_dot_ix3_ix2<A, S, S2>(lhs: &ArrayBase<S, Ix3>, rhs: &ArrayBase<S2, Ix2>) -> Array3<A>
@@ -78,12 +78,18 @@ where
 }
 
 #[inline(always)]
-pub fn quadratic_form_ix2_ix3_ix2_add_ix2<A, S1, S2, S3, S4>(lhs: &ArrayBase<S1, Ix2>, mid: &ArrayBase<S2, Ix3>, rhs: &ArrayBase<S3, Ix2>, add: &ArrayBase<S4, Ix2>) -> Array3<A> where
+pub fn quadratic_form_ix2_ix3_ix2_add_ix2<A, S1, S2, S3, S4>(
+    lhs: &ArrayBase<S1, Ix2>,
+    mid: &ArrayBase<S2, Ix3>,
+    rhs: &ArrayBase<S3, Ix2>,
+    add: &ArrayBase<S4, Ix2>,
+) -> Array3<A>
+where
     A: Scalar + Lapack,
     S1: Data<Elem = A>,
     S2: Data<Elem = A>,
     S3: Data<Elem = A>,
-    S4: Data<Elem = A>
+    S4: Data<Elem = A>,
 {
     let mid_dim = mid.dim();
     let add_dim = add.dim();
@@ -109,16 +115,20 @@ pub fn innovation_covariances_ix2<A: Scalar + Lapack>(
     innovation_covariances
 }
 
-
-pub fn pairwise_difference<A, S1, S2>(lhs: &ArrayBase<S1, Ix2>, rhs: &ArrayBase<S2, Ix2>) -> Array3<A> where
-A: Scalar + Lapack,
-S1: Data<Elem=A>,
-S2: Data<Elem=A>
+pub fn pairwise_difference<A, S1, S2>(
+    lhs: &ArrayBase<S1, Ix2>,
+    rhs: &ArrayBase<S2, Ix2>,
+) -> Array3<A>
+where
+    A: Scalar + Lapack,
+    S1: Data<Elem = A>,
+    S2: Data<Elem = A>,
 {
     let lhs_dim = lhs.dim();
     let rhs_dim = rhs.dim();
     let out_dim = [lhs_dim.0, rhs_dim.0, rhs_dim.1];
-    let mut difference = lhs.to_owned()
+    let mut difference = lhs
+        .to_owned()
         .insert_axis(Axis(1))
         .broadcast(out_dim)
         .unwrap()
@@ -129,9 +139,10 @@ S2: Data<Elem=A>
     difference
 }
 
-pub fn invc_all_ix3<A, S1>(matrices: &ArrayBase<S1, Ix3>) -> Array3<A> where
-A: Scalar + Lapack,
-S1: Data<Elem=A>,
+pub fn invc_all_ix3<A, S1>(matrices: &ArrayBase<S1, Ix3>) -> Array3<A>
+where
+    A: Scalar + Lapack,
+    S1: Data<Elem = A>,
 {
     let mut inv_matrices = Array3::zeros(matrices.raw_dim());
     for (mut destination, source) in inv_matrices.outer_iter_mut().zip(matrices.outer_iter()) {
