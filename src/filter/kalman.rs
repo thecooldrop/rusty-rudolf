@@ -61,7 +61,7 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         measurements: &ArrayBase<C, Ix2>,
     ) -> (Array3<T>, Array3<T>) {
         let expected_measurements = self.observation_matrix.dot(&states.t()).t().into_owned();
-        let innovations = pairwise_difference(measurements, &expected_measurements);
+        let mut innovations = pairwise_difference(measurements, &expected_measurements);
         let l_matrices = broad_dot_ix3_ix2(&covariances, &self.observation_matrix.t());
         let u_matrices = innovation_covariances_ix2(
             &self.observation_matrix,
@@ -70,7 +70,7 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         );
         let mut u_matrices_inv = invc_all_ix3(&u_matrices);
         let kalman_gains = broad_dot_ix3_ix3(&l_matrices, &u_matrices_inv);
-        let updated_states = self.update_states(states, &kalman_gains, &innovations);
+        let updated_states = self.update_states(states, &kalman_gains, &mut innovations);
         let updated_covs = self.update_covariances(covariances, &kalman_gains, &l_matrices);
         (updated_states, updated_covs)
     }
@@ -148,13 +148,15 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
         &self,
         states: &ArrayBase<A, Ix2>,
         kalman_gains: &Array3<T>,
-        innovations: &Array3<T>,
+        innovations:&mut Array3<T>,
     ) -> Array3<T> {
         let num_measurements = innovations.dim().0;
         let state_dim = states.dim();
         let updated_states_dim = [num_measurements, state_dim.0, state_dim.1];
         let mut broadcast_states_updated =
             states.broadcast(updated_states_dim).unwrap().into_owned();
+        broadcast_states_updated.swap_axes(0,1);
+        innovations.swap_axes(0,1);
         for ((mut state_updated, kalman_gain), innovation) in broadcast_states_updated
             .outer_iter_mut()
             .zip(kalman_gains.outer_iter())
@@ -163,6 +165,8 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
             let result = kalman_gain.dot(&innovation.t()).t().into_owned();
             state_updated.add_assign(&result);
         }
+        broadcast_states_updated.swap_axes(0,1);
+        innovations.swap_axes(0,1);
         broadcast_states_updated
     }
 
