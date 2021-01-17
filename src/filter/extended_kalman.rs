@@ -5,7 +5,9 @@ use ndarray::{
 };
 use ndarray_linalg::Lapack;
 use std::marker::PhantomData;
-use std::ops::AddAssign;
+use std::ops::{AddAssign, SubAssign};
+use crate::filter::kalman_common::{pairwise_difference, broad_dot_ix3_ix3, invc_all_ix3};
+
 
 pub struct AdditiveExtendedKalmanFilter<Num, Dim, Trans, Jacobi>
 where
@@ -17,7 +19,10 @@ where
     dimension_phantom: PhantomData<Dim>,
     transition_function: Trans,
     transition_function_jacobian: Jacobi,
+    measurement_function: Trans,
+    measurement_function_jacobi: Jacobi,
     transition_covariance: Array2<Num>,
+    measurement_covariance: Array2<Num>
 }
 
 impl<Num, Trans, Jacobi> Filter<Num> for AdditiveExtendedKalmanFilter<Num, Ix1, Trans, Jacobi>
@@ -68,9 +73,64 @@ where
 
     fn update<A: Data<Elem = Num>, B: Data<Elem = Num>, C: Data<Elem = Num>>(
         &self,
-        _states: &ArrayBase<A, Ix2>,
-        _covariances: &ArrayBase<B, Ix3>,
-        _measurements: &ArrayBase<C, Ix2>,
+        states: &ArrayBase<A, Ix2>,
+        covariances: &ArrayBase<B, Ix3>,
+        measurements: &ArrayBase<C, Ix2>,
     ) -> Self::Update {
+        // compute expected measurements
+        let measurements_dim = measurements.dim();
+        let states_dim = states.dim();
+        let expected_meas_dim = [states_dim.0, measurements_dim.1];
+        let mut expected_measurements = Array2::zeros(expected_meas_dim);
+        for (mut expected_measurement, state) in expected_measurements.outer_iter_mut().zip(states.outer_iter()) {
+            expected_measurement.assign(&(self.measurement_function)(&state));
+        }
+        let innovations = pairwise_difference(&expected_measurements,  measurements);
+
+        // compute measurement jacobi matrices
+        let measurement_jacobis_dim = [states_dim.0, measurements_dim.1, measurements_dim.1];
+        let mut measurement_jacobis = Array3::zeros(measurement_jacobis_dim);
+        for (mut elem, state) in measurement_jacobis.outer_iter_mut().zip(states.outer_iter()) {
+            elem.assign(&(self.measurement_function_jacobi)(&state).t());
+        }
+
+        // compute l-matrices
+        measurement_jacobis.swap_axes(1, 2);
+        let l_matrices = broad_dot_ix3_ix3(covariances, &measurement_jacobis);
+        measurement_jacobis.swap_axes(1,2);
+        let mut innovation_covariances = broad_dot_ix3_ix3(&measurement_jacobis, &l_matrices);
+        for mut elem in innovation_covariances.outer_iter_mut() {
+            elem.add_assign(&self.measurement_covariance);
+        }
+        let innovation_covariances = innovation_covariances;
+
+        let inv_innovation_covariances = invc_all_ix3(&innovation_covariances);
+        measurement_jacobis.swap_axes(1,2);
+        let kalman_gains = broad_dot_ix3_ix3(&l_matrices, &inv_innovation_covariances);
+
+
+        let updated_states_dim = [states_dim.0, measurements_dim.0, states_dim.1];
+        let mut updated_states = states.broadcast(updated_states_dim).unwrap().into_owned();
+        for ((mut updated_state, kalman_gain), innovation) in updated_states
+            .outer_iter_mut()
+            .zip(kalman_gains.outer_iter())
+            .zip(innovations.outer_iter())
+        {
+            let intermediate_result = kalman_gain.dot(&innovation.t()).t().into_owned();
+            updated_state.add_assign(&intermediate_result);
+        }
+
+        let mut updated_covariances = covariances.to_owned();
+        for ((mut elem, kalman_gain), l) in updated_covariances
+            .outer_iter_mut()
+            .zip(kalman_gains.outer_iter())
+            .zip(l_matrices.outer_iter())
+        {
+            let intermediate = kalman_gain.dot(&l.t());
+            elem.sub_assign(&intermediate);
+        }
+
+        updated_states.swap_axes(0,1);
+        (updated_states, updated_covariances)
     }
 }
