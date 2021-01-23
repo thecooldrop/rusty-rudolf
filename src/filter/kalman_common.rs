@@ -1,6 +1,6 @@
 use cauchy::Scalar;
 use ndarray::linalg::Dot;
-use ndarray::{Array2, Array3, ArrayBase, Axis, Data, Ix2, Ix3};
+use ndarray::{Array2, Array3, ArrayBase, Axis, Data, Ix2, Ix3, CowArray};
 use ndarray_linalg::InverseC;
 use ndarray_linalg::Lapack;
 use std::ops::{AddAssign, SubAssign};
@@ -127,16 +127,13 @@ where
     let lhs_dim = lhs.dim();
     let rhs_dim = rhs.dim();
     let out_dim = [lhs_dim.0, rhs_dim.0, rhs_dim.1];
-    let mut difference = lhs
-        .to_owned()
-        .insert_axis(Axis(1))
-        .broadcast(out_dim)
-        .unwrap()
-        .into_owned();
+    let expanded_lhs = lhs.view().insert_axis(Axis(1));
+    let broadcast_lhs = expanded_lhs.broadcast(out_dim).unwrap();
+    let mut difference = CowArray::from(broadcast_lhs);
     for mut elem in difference.outer_iter_mut() {
         elem.sub_assign(rhs);
     }
-    difference
+    difference.into_owned()
 }
 
 pub fn invc_all_ix3<A, S1>(matrices: &ArrayBase<S1, Ix3>) -> Array3<A>

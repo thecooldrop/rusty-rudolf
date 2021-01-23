@@ -3,7 +3,7 @@
 use super::filter_traits::Filter;
 use super::kalman_common::*;
 use cauchy::Scalar;
-use ndarray::{Array2, Array3, ArrayBase, Axis, Data, ErrorKind, Ix2, Ix3, ShapeError};
+use ndarray::{Array2, Array3, ArrayBase, Axis, Data, ErrorKind, Ix2, Ix3, ShapeError, CowArray};
 use ndarray_linalg::lapack::Lapack;
 use ndarray_linalg::InverseC;
 use std::ops::{AddAssign, SubAssign};
@@ -33,10 +33,10 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
 
     /// Updated values produced by Kalman filter are represented by two three-dimensional arrays.
     /// The first array in tuple represents the updated states. The (i,j)-th row in first matrix in
-    /// tuple represents j-th state row updated with i-th measurement row. The j-th matrix in
-    /// second matrix in tuple represents the covariance matrices for all updated values of j-th
-    /// states ( or pedantically speaking the j-th matrix in second matrix in tuple represents
-    /// the covariance matrix of (i,j)-th rows of updated states, for all i.
+    /// tuple represents i-th state row updated with j-th measurement row. The i-th matrix in
+    /// second matrix in tuple represents the covariance matrices for all updated values of i-th
+    /// states ( or pedantically speaking the i-th matrix in second matrix in tuple represents
+    /// the covariance matrix of (i,j)-th rows of updated states, for all j ).
     type Update = (Array3<T>, Array3<T>);
 
     fn predict<A: Data<Elem = T>, B: Data<Elem = T>>(
@@ -61,7 +61,7 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         measurements: &ArrayBase<C, Ix2>,
     ) -> (Array3<T>, Array3<T>) {
         let expected_measurements = self.observation_matrix.dot(&states.t()).t().into_owned();
-        let mut innovations = pairwise_difference(measurements, &expected_measurements);
+        let mut innovations = pairwise_difference(&expected_measurements, measurements);
         let l_matrices = broad_dot_ix3_ix2(&covariances, &self.observation_matrix.t());
         let u_matrices = innovation_covariances_ix2(
             &self.observation_matrix,
@@ -150,13 +150,12 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
         kalman_gains: &Array3<T>,
         innovations:&mut Array3<T>,
     ) -> Array3<T> {
-        let num_measurements = innovations.dim().0;
+        let num_measurements = innovations.dim().1;
         let state_dim = states.dim();
-        let updated_states_dim = [num_measurements, state_dim.0, state_dim.1];
-        let mut broadcast_states_updated =
-            states.broadcast(updated_states_dim).unwrap().into_owned();
-        broadcast_states_updated.swap_axes(0,1);
-        innovations.swap_axes(0,1);
+        let updated_states_dim = [state_dim.0, num_measurements, state_dim.1];
+        let expanded_states_view = states.view().insert_axis(Axis(1));
+        let broadcasted_view = expanded_states_view.broadcast(updated_states_dim).unwrap();
+        let mut broadcast_states_updated = CowArray::from(broadcasted_view);
         for ((mut state_updated, kalman_gain), innovation) in broadcast_states_updated
             .outer_iter_mut()
             .zip(kalman_gains.outer_iter())
@@ -165,9 +164,7 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
             let result = kalman_gain.dot(&innovation.t()).t().into_owned();
             state_updated.add_assign(&result);
         }
-        broadcast_states_updated.swap_axes(0,1);
-        innovations.swap_axes(0,1);
-        broadcast_states_updated
+        broadcast_states_updated.into_owned()
     }
 
     fn update_covariances<A: Data<Elem = T>>(
@@ -201,9 +198,9 @@ mod tests {
             &Array2::ones([8, 7]),
             &Array2::eye(8),
         );
-        match kf {
-            Result::Err(_) => return Result::Ok(()),
-            _ => return Result::Err(
+        return match kf {
+            Result::Err(_) => Result::Ok(()),
+            _ => Result::Err(
                 "Kalman filter can not accept non-square matrix as transition covariance matrix"
                     .to_string(),
             ),
@@ -218,9 +215,9 @@ mod tests {
             &Array2::eye(8),
             &Array2::ones([8, 7]),
         );
-        match kf {
-            Result::Err(_) => return Result::Ok(()),
-            _ => return Result::Err(
+        return match kf {
+            Result::Err(_) => Result::Ok(()),
+            _ => Result::Err(
                 "Kalman filter can not accept non-square matrix as observation covariance matrix"
                     .to_string(),
             ),
@@ -235,10 +232,10 @@ mod tests {
             &Array2::eye(8),
             &Array2::eye(8),
         );
-        match kf {
-            Result::Err(_) => return Result::Ok(()),
+        return match kf {
+            Result::Err(_) => Result::Ok(()),
             _ => {
-                return Result::Err(
+                Result::Err(
                     "Kalman filter can not accept non-square matrix as transition matrix"
                         .to_string(),
                 )
@@ -251,10 +248,10 @@ mod tests {
         let eye8 = &Array2::eye(8);
         let eye7 = &Array2::eye(7);
         let kf = KalmanFilter::<f64>::new(eye8, eye7, eye8, eye8);
-        match kf {
-            Result::Err(_) => return Result::Ok(()),
+        return match kf {
+            Result::Err(_) => Result::Ok(()),
             _ => {
-                return Result::Err(
+                Result::Err(
                     "Outer dimensions of transition and observation matrix should have to be equal"
                         .to_string(),
                 )
@@ -268,9 +265,9 @@ mod tests {
         let eye8 = &Array2::eye(8);
         let eye7 = &Array2::eye(7);
         let kf = KalmanFilter::<f64>::new(eye8, eye8, eye8, eye7);
-        match kf {
-            Result::Err(_) => return Result::Ok(()),
-            _ => return Result::Err("Inner dimensions of observation covariance matrix and observation matrix should have to be equal".to_string())
+        return match kf {
+            Result::Err(_) => Result::Ok(()),
+            _ => Result::Err("Inner dimensions of observation covariance matrix and observation matrix should have to be equal".to_string())
         }
     }
 
