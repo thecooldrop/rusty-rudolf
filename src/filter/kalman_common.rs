@@ -1,6 +1,6 @@
 use cauchy::Scalar;
 use ndarray::linalg::Dot;
-use ndarray::{Array2, Array3, ArrayBase, Axis, Data, Ix2, Ix3, CowArray};
+use ndarray::{Array2, Array3, ArrayBase, Axis, CowArray, Data, Ix2, Ix3};
 use ndarray_linalg::InverseC;
 use ndarray_linalg::Lapack;
 use std::ops::{AddAssign, SubAssign};
