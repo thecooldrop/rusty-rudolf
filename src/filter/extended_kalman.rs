@@ -29,10 +29,10 @@ where
     Jacobi: Fn(&ArrayView<Num, Dim>) -> ArrayBase<OwnedRepr<Num>, Dim::Larger>,
 {
     dimension_phantom: PhantomData<Dim>,
-    transition_function: Trans,
-    transition_function_jacobian: Jacobi,
-    measurement_function: Trans,
-    measurement_function_jacobi: Jacobi,
+    transition_function: Box<Trans>,
+    transition_function_jacobian: Box<Jacobi>,
+    measurement_function: Box<Trans>,
+    measurement_function_jacobi: Box<Jacobi>,
     transition_covariance: Array2<Num>,
     measurement_covariance: Array2<Num>
 }
