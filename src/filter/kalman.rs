@@ -3,7 +3,7 @@
 use super::filter_traits::Filter;
 use super::kalman_common::*;
 use cauchy::Scalar;
-use ndarray::{Array2, Array3, ArrayBase, Axis, Data, ErrorKind, Ix2, Ix3, ShapeError, CowArray};
+use ndarray::{Array2, Array3, ArrayBase, Axis, CowArray, Data, ErrorKind, Ix2, Ix3, ShapeError};
 use ndarray_linalg::lapack::Lapack;
 use ndarray_linalg::InverseC;
 use std::ops::{AddAssign, SubAssign};
@@ -70,7 +70,7 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         );
         let mut u_matrices_inv = invc_all_ix3(&u_matrices);
         let kalman_gains = broad_dot_ix3_ix3(&l_matrices, &u_matrices_inv);
-        let updated_states = self.update_states(states, &kalman_gains, &mut innovations);
+        let updated_states = self.update_states(states, &kalman_gains, &innovations);
         let updated_covs = self.update_covariances(covariances, &kalman_gains, &l_matrices);
         (updated_states, updated_covs)
     }
@@ -148,7 +148,7 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
         &self,
         states: &ArrayBase<A, Ix2>,
         kalman_gains: &Array3<T>,
-        innovations:&mut Array3<T>,
+        innovations: &Array3<T>,
     ) -> Array3<T> {
         let num_measurements = innovations.dim().1;
         let state_dim = states.dim();
@@ -162,7 +162,7 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
             .zip(innovations.outer_iter())
         {
             let result = kalman_gain.dot(&innovation.t()).t().into_owned();
-            state_updated.add_assign(&result);
+            state_updated.sub_assign(&result);
         }
         broadcast_states_updated.into_owned()
     }
@@ -234,12 +234,9 @@ mod tests {
         );
         return match kf {
             Result::Err(_) => Result::Ok(()),
-            _ => {
-                Result::Err(
-                    "Kalman filter can not accept non-square matrix as transition matrix"
-                        .to_string(),
-                )
-            }
+            _ => Result::Err(
+                "Kalman filter can not accept non-square matrix as transition matrix".to_string(),
+            ),
         };
     }
 
@@ -250,13 +247,11 @@ mod tests {
         let kf = KalmanFilter::<f64>::new(eye8, eye7, eye8, eye8);
         return match kf {
             Result::Err(_) => Result::Ok(()),
-            _ => {
-                Result::Err(
-                    "Outer dimensions of transition and observation matrix should have to be equal"
-                        .to_string(),
-                )
-            }
-        }
+            _ => Result::Err(
+                "Outer dimensions of transition and observation matrix should have to be equal"
+                    .to_string(),
+            ),
+        };
     }
 
     #[test]
@@ -268,7 +263,7 @@ mod tests {
         return match kf {
             Result::Err(_) => Result::Ok(()),
             _ => Result::Err("Inner dimensions of observation covariance matrix and observation matrix should have to be equal".to_string())
-        }
+        };
     }
 
     #[test]
