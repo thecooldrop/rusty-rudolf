@@ -68,13 +68,11 @@ where
     let lhs_dim = lhs.dim();
     let mid_dim = mid.dim();
     let rhs_dim = rhs.dim();
-    unsafe {
-        let mut output = Array3::uninitialized([mid_dim.0, lhs_dim.0, rhs_dim.1]);
-        for (mut elem, input) in output.outer_iter_mut().zip(mid.outer_iter()) {
-            elem.assign(&lhs.dot(&input).dot(rhs));
-        }
-        output
+    let mut output = Array3::zeros([mid_dim.0, lhs_dim.0, rhs_dim.1]);
+    for (mut elem, input) in output.outer_iter_mut().zip(mid.outer_iter()) {
+        elem.assign(&lhs.dot(&input).dot(rhs));
     }
+    output
 }
 
 #[inline(always)]
@@ -93,14 +91,12 @@ where
 {
     let mid_dim = mid.dim();
     let add_dim = add.dim();
-    unsafe {
-        let mut output = Array3::uninitialized([mid_dim.0, add_dim.0, add_dim.1]);
-        for (mut out, elem) in output.outer_iter_mut().zip(mid.outer_iter()) {
-            let result = lhs.dot(&elem).dot(rhs) + add;
-            out.assign(&result);
-        }
-        output
+    let mut output = Array3::zeros([mid_dim.0, add_dim.0, add_dim.1]);
+    for (mut out, elem) in output.outer_iter_mut().zip(mid.outer_iter()) {
+        let result = lhs.dot(&elem).dot(rhs) + add;
+        out.assign(&result);
     }
+    output
 }
 
 pub fn innovation_covariances_ix2<A: Scalar + Lapack>(
