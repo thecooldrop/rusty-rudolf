@@ -42,19 +42,14 @@ where
         covariances: &ArrayBase<B, Ix3>,
     ) -> Self::Prediction {
         let mut predicted_states = (self.transition_function)(&states.view());
-        let state_jacobis = (self.transition_function_jacobian)(&states.view());
+        let mut state_jacobis = (self.transition_function_jacobian)(&states.view());
         let mut predicted_covariances = self
             .transition_covariance
             .broadcast(covariances.raw_dim())
             .unwrap()
             .to_owned();
-        for (mut cov, jacobi) in predicted_covariances
-            .outer_iter_mut()
-            .zip(state_jacobis.outer_iter())
-        {
-            let predicted_cov = jacobi.dot(&cov).dot(&jacobi.t());
-            cov.add_assign(&predicted_cov);
-        }
+        let quadratic_summand = quadratic_form_ix3_ix3_ix3(covariances, &mut state_jacobis);
+        predicted_covariances.add_assign(&quadratic_summand);
         (predicted_states, predicted_covariances)
     }
 
@@ -73,9 +68,7 @@ where
         measurement_jacobis.swap_axes(1, 2);
 
         let mut innovation_covariances = broad_dot_ix3_ix3(&measurement_jacobis, &l_matrices);
-        for mut inno_cov in innovation_covariances.outer_iter_mut() {
-            inno_cov.add_assign(&self.measurement_covariance);
-        }
+        innovation_covariances.add_assign(&self.measurement_covariance);
 
         let inv_innovation_covariances = invc_all_ix3(&innovation_covariances);
         let kalman_gains = broad_dot_ix3_ix3(&l_matrices, &inv_innovation_covariances);
