@@ -17,13 +17,6 @@ use std::ops::{AddAssign, SubAssign};
 ///
 /// The struct is generic with following type parameters:
 /// - Num type parameter represents the numeric type on which the algorithm is going to work
-/// - Dim represents the dimension of inputs for transition and measurement functions. For example
-///   if Dim is Ix1, then it is assumed that transition and measurement functions compute the
-///   predictions and Jacobians for single row at a time. In case that Dim is Ix2, then it is
-///   assumed that the transition and measurement functions are vectorized, and can compute the
-///   predictions and Jacobian matrices for many states at once.
-/// - Trans represents the type of function for transition and measurement function, while Jacobi
-///   represents the type of function for computing the Jacobians of corresponding functions.
 pub struct AdditiveNoiseExtendedKalmanFilter<Num>
 where
     Num: Scalar + Lapack,
