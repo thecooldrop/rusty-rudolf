@@ -75,6 +75,50 @@ where
     output
 }
 
+pub(in crate) fn quadratic_form_ix3_ix3_ix3<A, S1, S2>(inner: &ArrayBase<S1, Ix3>, outer: &mut ArrayBase<S2, Ix3>) -> Array3<A>
+where
+    A: Scalar+Lapack,
+    S1: Data<Elem=A>,
+    S2: Data<Elem=A>
+{
+    let intermediate = broad_dot_ix3_ix3(outer, inner);
+    outer.swap_axes(1, 2);
+    let result = broad_dot_ix3_ix3(&intermediate, outer);
+    outer.swap_axes(1, 2);
+    result
+}
+
+pub(in crate) fn update_states<A: Scalar+Lapack, S1: Data<Elem=A>>(states: &ArrayBase<S1, Ix2>, kalman_gains: &Array3<A>, innovations_negated: &Array3<A>) -> Array3<A> {
+    let num_measurements = innovations_negated.dim().1;
+    let state_dim = states.dim();
+    let updated_states_dim = [state_dim.0, num_measurements, state_dim.1];
+    let expanded_states_view = states.view().insert_axis(Axis(1));
+    let broadcasted_view = expanded_states_view.broadcast(updated_states_dim).unwrap();
+    let mut broadcast_states_updated = CowArray::from(broadcasted_view);
+    for ((mut state_updated, kalman_gain), innovation) in broadcast_states_updated
+        .outer_iter_mut()
+        .zip(kalman_gains.outer_iter())
+        .zip(innovations_negated.outer_iter())
+    {
+        let result = kalman_gain.dot(&innovation.t()).t().into_owned();
+        state_updated.sub_assign(&result);
+    }
+    broadcast_states_updated.into_owned()
+}
+
+pub(in crate) fn update_covariance<A: Scalar+Lapack, S1: Data<Elem=A>>(covariances: &ArrayBase<S1, Ix3>, kalman_gains: &Array3<A>, l_matrices: &Array3<A>) -> Array3<A>{
+    let mut updated_covariances = covariances.to_owned();
+    for ((mut elem, kalman_gain), l) in updated_covariances
+        .outer_iter_mut()
+        .zip(kalman_gains.outer_iter())
+        .zip(l_matrices.outer_iter())
+    {
+        let intermediate = kalman_gain.dot(&l.t());
+        elem.sub_assign(&intermediate);
+    }
+    updated_covariances
+}
+
 #[inline(always)]
 pub fn quadratic_form_ix2_ix3_ix2_add_ix2<A, S1, S2, S3, S4>(
     lhs: &ArrayBase<S1, Ix2>,
