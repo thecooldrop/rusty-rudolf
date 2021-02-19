@@ -1,12 +1,12 @@
 //! This module contains the implementation of Kalman filtering algorithms, as well as traits
 //! which are used to encapsulate the functionality of filtering algorithms.
+
+use cauchy::Scalar;
+use ndarray::{Array2, Array3, ArrayBase, Data, ErrorKind, Ix2, Ix3, ShapeError};
+use ndarray_linalg::lapack::Lapack;
+
 use super::filter_traits::Filter;
 use super::kalman_common::*;
-use cauchy::Scalar;
-use ndarray::{Array2, Array3, ArrayBase, Axis, CowArray, Data, ErrorKind, Ix2, Ix3, ShapeError};
-use ndarray_linalg::lapack::Lapack;
-use ndarray_linalg::InverseC;
-use std::ops::{AddAssign, SubAssign};
 
 /// Basic linear Kalman filtering algorithm
 ///
@@ -61,14 +61,14 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         measurements: &ArrayBase<C, Ix2>,
     ) -> (Array3<T>, Array3<T>) {
         let expected_measurements = self.observation_matrix.dot(&states.t()).t().into_owned();
-        let mut innovations_negated = pairwise_difference(&expected_measurements, measurements);
+        let innovations_negated = pairwise_difference(&expected_measurements, measurements);
         let l_matrices = broad_dot_ix3_ix2(&covariances, &self.observation_matrix.t());
         let u_matrices = innovation_covariances_ix2(
             &self.observation_matrix,
             &self.observation_covariance,
             &l_matrices,
         );
-        let mut u_matrices_inv = invc_all_ix3(&u_matrices);
+        let u_matrices_inv = invc_all_ix3(&u_matrices);
         let kalman_gains = broad_dot_ix3_ix3(&l_matrices, &u_matrices_inv);
         let updated_states = update_states(&states, &kalman_gains, &innovations_negated);
         let updated_covs = update_covariance(covariances, &kalman_gains, &l_matrices);

@@ -1,13 +1,12 @@
-use crate::filter::filter_traits::Filter;
-use crate::filter::kalman_common::{broad_dot_ix3_ix3, invc_all_ix3, pairwise_difference, quadratic_form_ix3_ix3_ix3, update_states, update_covariance};
+use std::ops::{AddAssign};
+
 use cauchy::Scalar;
-use ndarray::{
-    Array1, Array2, Array3, ArrayBase, ArrayView, ArrayView1, ArrayView2, Axis, CowArray, Data,
-    Dimension, Ix1, Ix2, Ix3, OwnedRepr,
+use ndarray::{Array2, Array3, ArrayBase, ArrayView2, Data, Ix2, Ix3,
 };
 use ndarray_linalg::Lapack;
-use std::marker::PhantomData;
-use std::ops::{AddAssign, SubAssign};
+
+use crate::filter::filter_traits::Filter;
+use crate::filter::kalman_common::{broad_dot_ix3_ix3, invc_all_ix3, pairwise_difference, quadratic_form_ix3_ix3_ix3, update_covariance, update_states};
 
 /// Extended Kalman filter with additive Gaussian noise
 ///
@@ -41,14 +40,14 @@ where
         states: &ArrayBase<A, Ix2>,
         covariances: &ArrayBase<B, Ix3>,
     ) -> Self::Prediction {
-        let mut predicted_states = (self.transition_function)(&states.view());
-        let mut state_jacobis = (self.transition_function_jacobian)(&states.view());
+        let predicted_states = (self.transition_function)(&states.view());
+        let state_jacobis = (self.transition_function_jacobian)(&states.view());
         let mut predicted_covariances = self
             .transition_covariance
             .broadcast(covariances.raw_dim())
             .unwrap()
             .to_owned();
-        let quadratic_summand = quadratic_form_ix3_ix3_ix3(covariances, &mut state_jacobis);
+        let quadratic_summand = quadratic_form_ix3_ix3_ix3(covariances, &state_jacobis);
         predicted_covariances.add_assign(&quadratic_summand);
         (predicted_states, predicted_covariances)
     }
@@ -62,10 +61,11 @@ where
         let expected_measurements = (self.measurement_function)(&states.view());
         let innovations = pairwise_difference(&expected_measurements, measurements);
 
-        let mut measurement_jacobis = (self.measurement_function_jacobi)(&states.view());
-        measurement_jacobis.swap_axes(1, 2);
-        let l_matrices = broad_dot_ix3_ix3(covariances, &measurement_jacobis);
-        measurement_jacobis.swap_axes(1, 2);
+        let measurement_jacobis = (self.measurement_function_jacobi)(&states.view());
+        let mut measurement_jacobis_view = measurement_jacobis.view();
+        measurement_jacobis_view.swap_axes(1, 2);
+
+        let l_matrices = broad_dot_ix3_ix3(covariances, &measurement_jacobis_view);
 
         let mut innovation_covariances = broad_dot_ix3_ix3(&measurement_jacobis, &l_matrices);
         innovation_covariances.add_assign(&self.measurement_covariance);
@@ -79,7 +79,7 @@ where
     }
 }
 
-type MatrixStackProducer<Num> = Box<dyn Fn(&ArrayView2<Num>, &ArrayView2<Num>) -> Array3<Num>>;
+type JacobiMatrixProducer<Num> = Box<dyn Fn(&ArrayView2<Num>, &ArrayView2<Num>) -> Array3<Num>>;
 type RowStackProducer<Num> = Box<dyn Fn(&ArrayView2<Num>, &ArrayView2<Num>) -> Array2<Num>>;
 
 pub struct ExtendedKalmanFilter<Num>
@@ -87,11 +87,11 @@ where
     Num: Scalar + Lapack,
 {
     transition_function: RowStackProducer<Num>,
-    transition_function_jacobi_state: MatrixStackProducer<Num>,
-    transition_function_jacobi_noise: MatrixStackProducer<Num>,
+    transition_function_jacobi_state: JacobiMatrixProducer<Num>,
+    transition_function_jacobi_noise: JacobiMatrixProducer<Num>,
     measurement_function: RowStackProducer<Num>,
-    measurement_function_jacobi_state: MatrixStackProducer<Num>,
-    measurement_function_jacobi_noise: MatrixStackProducer<Num>,
+    measurement_function_jacobi_state: JacobiMatrixProducer<Num>,
+    measurement_function_jacobi_noise: JacobiMatrixProducer<Num>,
     transition_covariance: Array2<Num>,
     measurement_covariance: Array2<Num>,
 }
@@ -111,14 +111,14 @@ where
         let zeros = Array2::zeros(states.raw_dim());
         let predicted_states = (self.transition_function)(&states.view(), &zeros.view());
 
-        let mut state_jacobi = (self.transition_function_jacobi_state)(&states.view(), &zeros.view());
-        let mut predicted_covariances = quadratic_form_ix3_ix3_ix3(&covariances, &mut state_jacobi);
+        let state_jacobi = (self.transition_function_jacobi_state)(&states.view(), &zeros.view());
+        let mut predicted_covariances = quadratic_form_ix3_ix3_ix3(&covariances, &state_jacobi);
 
         let broadcast_transition_covariance = self.transition_covariance
             .broadcast(covariances.raw_dim())
             .unwrap();
-        let mut noise_jacobi = (self.transition_function_jacobi_noise)(&states.view(), &zeros.view());
-        let second_summand = quadratic_form_ix3_ix3_ix3(&broadcast_transition_covariance, &mut noise_jacobi);
+        let noise_jacobi = (self.transition_function_jacobi_noise)(&states.view(), &zeros.view());
+        let second_summand = quadratic_form_ix3_ix3_ix3(&broadcast_transition_covariance, &noise_jacobi);
         predicted_covariances.add_assign(&second_summand);
 
         (predicted_states, predicted_covariances)
@@ -130,19 +130,23 @@ where
         covariances: &ArrayBase<B, Ix3>,
         measurements: &ArrayBase<C, Ix2>,
     ) -> Self::Update {
-        let states_shape = states.dim();
-        let measurements_shape = measurements.dim();
-        let zeros = Array2::zeros([states_shape.0, measurements_shape.1]);
+        let states_number = states.dim().0;
+        let measurement_dim = measurements.dim().1;
+
+        let zeros = Array2::zeros([states_number, measurement_dim]);
         let expected_measurements = (self.measurement_function)(&states.view(), &zeros.view());
         let innovations_negated = pairwise_difference(&expected_measurements, measurements);
 
-        let mut measurement_jacobi = (self.measurement_function_jacobi_state)(&states.view(), &zeros.view());
-        measurement_jacobi.swap_axes(1, 2);
-        let state_l_matrices = broad_dot_ix3_ix3(&covariances, &measurement_jacobi);
-        measurement_jacobi.swap_axes(1, 2);
+        let measurement_jacobi = (self.measurement_function_jacobi_state)(&states.view(), &zeros.view());
+        let mut measurement_jacobi_view = measurement_jacobi.view();
+        measurement_jacobi_view.swap_axes(1, 2);
+        let state_l_matrices = broad_dot_ix3_ix3(&covariances, &measurement_jacobi_view);
 
-        let mut noise_jacobi = (self.measurement_function_jacobi_noise)(&states.view(), &zeros.view());
-        let second_summand = quadratic_form_ix3_ix3_ix3(&covariances, &mut noise_jacobi);
+        let noise_jacobi = (self.measurement_function_jacobi_noise)(&states.view(), &zeros.view());
+        let measurement_covariance_shape = self.measurement_covariance.dim();
+        let target_broadcast_shape = [noise_jacobi.dim().0, measurement_covariance_shape.0, measurement_covariance_shape.1];
+        let broadcast_measurement_covariances = self.measurement_covariance.broadcast(target_broadcast_shape).unwrap();
+        let second_summand = quadratic_form_ix3_ix3_ix3(&broadcast_measurement_covariances, &noise_jacobi);
 
         let mut innovation_covariances = broad_dot_ix3_ix3(&measurement_jacobi, &state_l_matrices);
         innovation_covariances.add_assign(&second_summand);
@@ -163,11 +167,11 @@ where
 {
     pub fn new<A: Data<Elem = Num>>(
         transition_function: RowStackProducer<Num>,
-        transition_function_jacobi_state: MatrixStackProducer<Num>,
-        transition_function_jacobi_noise: MatrixStackProducer<Num>,
+        transition_function_jacobi_state: JacobiMatrixProducer<Num>,
+        transition_function_jacobi_noise: JacobiMatrixProducer<Num>,
         measurement_function: RowStackProducer<Num>,
-        measurement_function_jacobi_state: MatrixStackProducer<Num>,
-        measurement_function_jacobi_noise: MatrixStackProducer<Num>,
+        measurement_function_jacobi_state: JacobiMatrixProducer<Num>,
+        measurement_function_jacobi_noise: JacobiMatrixProducer<Num>,
         transition_covariance: &ArrayBase<A, Ix2>,
         measurement_covariance: &ArrayBase<A, Ix2>,
     ) -> Self {
@@ -186,8 +190,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::filter::extended_kalman::ExtendedKalmanFilter;
     use ndarray::{Array2, ArrayView, ArrayView2, Axis};
+
+    use crate::filter::extended_kalman::ExtendedKalmanFilter;
 
     #[test]
     fn can_create_extended_kalman_filter() {

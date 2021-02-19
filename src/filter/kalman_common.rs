@@ -1,9 +1,9 @@
+use std::ops::{AddAssign, SubAssign};
+
 use cauchy::Scalar;
-use ndarray::linalg::Dot;
 use ndarray::{Array2, Array3, ArrayBase, Axis, CowArray, Data, Ix2, Ix3};
 use ndarray_linalg::InverseC;
 use ndarray_linalg::Lapack;
-use std::ops::{AddAssign, SubAssign};
 
 pub fn broad_dot_ix3_ix2<A, S, S2>(lhs: &ArrayBase<S, Ix3>, rhs: &ArrayBase<S2, Ix2>) -> Array3<A>
 where
@@ -54,37 +54,16 @@ where
     output
 }
 
-pub fn quadratic_form_ix2_ix3_ix2<A, S1, S2, S3>(
-    lhs: &ArrayBase<S1, Ix2>,
-    mid: &ArrayBase<S2, Ix3>,
-    rhs: &ArrayBase<S3, Ix2>,
-) -> Array3<A>
-where
-    A: Scalar + Lapack,
-    S1: Data<Elem = A>,
-    S2: Data<Elem = A>,
-    S3: Data<Elem = A>,
-{
-    let lhs_dim = lhs.dim();
-    let mid_dim = mid.dim();
-    let rhs_dim = rhs.dim();
-    let mut output = Array3::zeros([mid_dim.0, lhs_dim.0, rhs_dim.1]);
-    for (mut elem, input) in output.outer_iter_mut().zip(mid.outer_iter()) {
-        elem.assign(&lhs.dot(&input).dot(rhs));
-    }
-    output
-}
-
-pub(in crate) fn quadratic_form_ix3_ix3_ix3<A, S1, S2>(inner: &ArrayBase<S1, Ix3>, outer: &mut ArrayBase<S2, Ix3>) -> Array3<A>
+pub(in crate) fn quadratic_form_ix3_ix3_ix3<A, S1, S2>(inner: &ArrayBase<S1, Ix3>, outer: &ArrayBase<S2, Ix3>) -> Array3<A>
 where
     A: Scalar+Lapack,
     S1: Data<Elem=A>,
     S2: Data<Elem=A>
 {
     let intermediate = broad_dot_ix3_ix3(outer, inner);
-    outer.swap_axes(1, 2);
-    let result = broad_dot_ix3_ix3(&intermediate, outer);
-    outer.swap_axes(1, 2);
+    let mut outer_view = outer.view();
+    outer_view.swap_axes(1, 2);
+    let result = broad_dot_ix3_ix3(&intermediate, &outer_view);
     result
 }
 
