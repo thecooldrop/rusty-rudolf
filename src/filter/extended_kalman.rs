@@ -8,6 +8,7 @@ use ndarray_linalg::Lapack;
 use crate::filter::filter_traits::Filter;
 use crate::filter::kalman_common::{broad_dot_ix3_ix3, invc_all_ix3, pairwise_difference, quadratic_form_ix3_ix3_ix3, update_covariance, update_states};
 
+
 /// Extended Kalman filter with additive Gaussian noise
 ///
 /// This struct represents the extended Kalman filter where transition function is parametrized only
