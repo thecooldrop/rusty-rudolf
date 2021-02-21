@@ -1,4 +1,5 @@
 use std::ops::{SubAssign, Neg};
+use std::convert::From;
 
 use cauchy::Scalar;
 use ndarray::{Array2, Array3, ArrayBase, Axis, CowArray, Data, Ix2, Ix3, azip};
@@ -8,7 +9,7 @@ use ndarray::linalg::general_mat_mul;
 use ndarray_linalg::error::LinalgError;
 
 
-pub(in crate) fn broad_dot_ix3_ix2<A, S, S2>(lhs: &ArrayBase<S, Ix3>, rhs: &ArrayBase<S2, Ix2>) -> Array3<A>
+pub(in crate) fn broad_dot_ix3_ix2<A, S, S2>(lhs: &ArrayBase<S, Ix3>, rhs: &ArrayBase<S2, Ix2>) -> Result<Array3<A>, InternalOperationError>
 where
     A: Scalar + Lapack,
     S: Data<Elem = A>,
@@ -17,14 +18,14 @@ where
     let (lhs_len, lhs_rows, lhs_cols) = lhs.dim();
     let (rhs_rows, rhs_cols) = rhs.dim();
     if lhs_cols != rhs_rows {
-        // TODO: Add code
+        InternalOperationError::matrix_multiplication_dimension_mismatch((lhs_rows, lhs_cols), (rhs_rows, rhs_cols))
     }
     let mut output = Array3::zeros([lhs_len, lhs_rows, rhs_cols]);
     azip!((elem in lhs.outer_iter(), mut out in output.outer_iter_mut()) general_mat_mul(A::one(), &elem, &rhs, A::zero(), &mut out));
-    output
+    Ok(output)
 }
 
-pub(in crate) fn broad_dot_ix3_ix3<A, S, S2>(lhs: &ArrayBase<S, Ix3>, rhs: &ArrayBase<S2, Ix3>) -> Array3<A>
+pub(in crate) fn broad_dot_ix3_ix3<A, S, S2>(lhs: &ArrayBase<S, Ix3>, rhs: &ArrayBase<S2, Ix3>) -> Result<Array3, InternalOperationError>
 where
     A: Scalar + Lapack,
     S: Data<Elem = A>,
@@ -32,40 +33,31 @@ where
 {
     let (lhs_len, lhs_rows, lhs_cols) = lhs.dim();
     let (rhs_len, rhs_rows, rhs_cols) = rhs.dim();
+
     if lhs_cols != rhs_rows {
-        // TODO: Write code to throw error
+        InternalOperationError::matrix_multiplication_dimension_mismatch((lhs_rows, lhs_cols), (rhs_rows, rhs_cols))
     }
 
     if lhs_len != rhs_len {
-        // TODO: Write code to throw error
+        Err(InputNumberMismatchError::UnequalNumberOfInputsError)
     }
+
     let mut output = Array3::zeros([lhs_len, lhs_rows, rhs_cols]);
     azip!((l in lhs.outer_iter(), r in rhs.outer_iter(), mut out in output.outer_iter_mut())
             general_mat_mul(A::one(), &l, &r, A::zero(), &mut out));
-    output
+    Ok(output)
 }
 
-pub(in crate) fn quadratic_form_ix3_ix3_ix3<A, S1, S2>(inner: &ArrayBase<S1, Ix3>, outer: &ArrayBase<S2, Ix3>) -> Array3<A>
+pub(in crate) fn quadratic_form_ix3_ix3_ix3<A, S1, S2>(inner: &ArrayBase<S1, Ix3>, outer: &ArrayBase<S2, Ix3>) -> Result<Array3<A>, InternalOperationError>
 where
     A: Scalar+Lapack,
     S1: Data<Elem=A>,
     S2: Data<Elem=A>
 {
-    let (inner_len, inner_rows, inner_cols) = inner.dim();
-    let (outer_len, outer_rows, outer_cols) = outer.dim();
-
-    if outer_cols != inner_rows || outer_rows != inner_cols {
-        //TODO: Write code to throw exception if someting does not match
-    }
-
-    if inner_len != outer_len {
-        //TODO: Write code to throw exception if something does not match
-    }
-
-    let intermediate = broad_dot_ix3_ix3(outer, inner);
+    let intermediate = broad_dot_ix3_ix3(outer, inner)?;
     let mut outer_view = outer.view();
     outer_view.swap_axes(1, 2);
-    broad_dot_ix3_ix3(&intermediate, &outer_view)
+    Ok(broad_dot_ix3_ix3(&intermediate, &outer_view)?)
 }
 
 pub(in crate) fn update_states<A: Scalar+Lapack, S1: Data<Elem=A>>(states: &ArrayBase<S1, Ix2>, kalman_gains: &Array3<A>, innovations_negated: &Array3<A>) -> Array3<A> {
@@ -75,15 +67,15 @@ pub(in crate) fn update_states<A: Scalar+Lapack, S1: Data<Elem=A>>(states: &Arra
     let (kalman_gain_len, kalman_gain_rows, kalman_gains_cols) = kalman_gains.dim();
 
     if kalman_gains_cols != innovation_cols {
-        //TODO: Write code to throw error
+        InternalOperationError::matrix_multiplication_dimension_mismatch((kalman_gain_rows, kalman_gains_cols), (innovation_rows, innovation_cols));
     }
 
     if kalman_gain_rows != state_cols {
-        //TODO: Write code to throw error
+        InternalOperationError::vector_addition_dimension_mismatch(kalman_gain_rows, state_cols)
     }
 
     if state_rows != kalman_gain_len || state_rows != innovations_len {
-        //TODO: Write code to throw error
+        Err(InternalOperationError::InvalidArgumentsError(InputNumberMismatchError::UnequalNumberOfInputsError))
     }
 
     let updated_states_dim = [state_rows, innovation_rows, state_cols];
@@ -107,15 +99,22 @@ pub(in crate) fn update_covariance<A: Scalar+Lapack, S1: Data<Elem=A>>(covarianc
     let (l_matrix_len, l_matrix_rows, l_matrix_cols) = l_matrices.dim();
 
     if kalman_gain_len != covariances_len || covariances_len != l_matrix_len {
-        // TODO: Add error handling
+        Err(InternalOperationError::InvalidArgumentsError(InputNumberMismatchError::UnequalNumberOfInputsError))
     }
 
     if kalman_gain_cols != l_matrix_cols {
-        // TODO: Add error handling
+        let dimension_mismatch = MatrixOperationError::MatrixMultiplicationError {
+            lhs_shape: (kalman_gain_rows, kalman_gain_cols),
+            rhs_shape: (l_matrix_cols, l_matrix_rows)
+        };
+        Err(InternalOperationError::MatrixOperationError(dimension_mismatch))
     }
 
     if (kalman_gain_rows, l_matrix_rows) != (covariances_rows, covariances_cols) {
-        // TODO: Add error handling
+        Err(InternalOperationError::MatrixOperationError(MatrixOperationError::MatrixArithmeticError {
+            lhs_dim: (kalman_gain_rows, l_matrix_rows),
+            rhs_dim: (covariances_rows, covariances_cols)
+        }))
     }
 
     let mut updated_covariances = covariances.to_owned();
@@ -148,12 +147,16 @@ where
     let (rhs_rows, rhs_cols) = rhs.dim();
     let (add_rows, add_cols) = add.dim();
 
-    if lhs_cols != mid_rows || mid_cols != rhs_rows {
-        // TODO Add error handling
+    if lhs_cols != mid_rows {
+        InternalOperationError::matrix_multiplication_dimension_mismatch((lhs_rows, lhs_cols), (mid_rows, mid_cols))
+    }
+
+    if mid_cols != rhs_rows {
+        InternalOperationError::matrix_multiplication_dimension_mismatch((mid_rows, mid_cols), (rhs_rows, rhs_cols))
     }
 
     if (lhs_rows, rhs_cols) != (add_rows, add_cols) {
-        // TODO Add error handling
+        InternalOperationError::matrix_addition_dimension_mismatch((lhs_rows, rhs_cols), (add_rows, add_cols))
     }
 
     let mid_dim = mid.dim();
@@ -241,4 +244,32 @@ pub(in crate) enum InternalOperationError {
     InvalidArgumentsError(InputNumberMismatchError),
     MatrixOperationError(MatrixOperationError),
     LapackError(LinalgError)
+}
+
+impl From<MatrixOperationError> for InternalOperationError
+
+
+impl InternalOperationError {
+    fn matrix_multiplication_dimension_mismatch(lhs_dim: (usize, usize), rhs_dim: (usize, usize)) -> Result::Err(InternalOperationError) {
+        let dimension_mismatch = MatrixOperationError::MatrixMultiplicationError {
+            lhs_shape: lhs_dim,
+            rhs_shape: rhs_dim
+        };
+        Err(InternalOperationError::MatrixOperationError(dimension_mismatch))
+    }
+
+    fn vector_addition_dimension_mismatch(lhs_dim: usize, rhs_dim: usize) -> Result::Err(InternalOperationError){
+        Err(InternalOperationError::MatrixOperationError(MatrixOperationError::VectorArithmeticError {
+            lhs_dim,
+            rhs_dim
+        }))
+    }
+
+    fn matrix_addition_dimension_mismatch(lhs_dim: (usize, usize), rhs_dim: (usize, usize)) -> Result::Err(InternalOperationError) {
+        let dimension_mismatch = MatrixOperationError::MatrixArithmeticError {
+            lhs_dim,
+            rhs_dim
+        };
+        Result::Err(InternalOperationError::MatrixOperationError((dimension_mismatch)))
+    }
 }
