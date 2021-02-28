@@ -14,6 +14,7 @@ ndarray-linalg = { version = "0.12", features = ["openblas"] }
 blas-src = { version = "0.7.0", default-features = false, features = ["openblas"] }
 openblas-src = { version = "0.9", default-features = false, features = ["cblas", "static"] }
 cauchy = "0.2.2"
+nalgebra = "0.24.1"
 #mimalloc = { version = "0.1.17", default-features = false }
 [dev-dependencies]
 criterion = "0.3"
