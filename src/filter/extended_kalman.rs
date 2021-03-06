@@ -48,7 +48,7 @@ where
             .broadcast(covariances.raw_dim())
             .unwrap()
             .to_owned();
-        let quadratic_summand = quadratic_form_ix3_ix3_ix3(covariances, &state_jacobis);
+        let quadratic_summand = quadratic_form_ix3_ix3_ix3(covariances, &state_jacobis).unwrap();
         predicted_covariances.add_assign(&quadratic_summand);
         (predicted_states, predicted_covariances)
     }
@@ -60,21 +60,21 @@ where
         measurements: &ArrayBase<C, Ix2>,
     ) -> Self::Update {
         let expected_measurements = (self.measurement_function)(&states.view());
-        let innovations = pairwise_difference(&expected_measurements, measurements);
+        let innovations = pairwise_difference(&expected_measurements, measurements).unwrap();
 
         let measurement_jacobis = (self.measurement_function_jacobi)(&states.view());
         let mut measurement_jacobis_view = measurement_jacobis.view();
         measurement_jacobis_view.swap_axes(1, 2);
 
-        let l_matrices = broad_dot_ix3_ix3(covariances, &measurement_jacobis_view);
+        let l_matrices = broad_dot_ix3_ix3(covariances, &measurement_jacobis_view).unwrap();
 
-        let mut innovation_covariances = broad_dot_ix3_ix3(&measurement_jacobis, &l_matrices);
+        let mut innovation_covariances = broad_dot_ix3_ix3(&measurement_jacobis, &l_matrices).unwrap();
         innovation_covariances.add_assign(&self.measurement_covariance);
 
-        let inv_innovation_covariances = invc_all_ix3(&innovation_covariances);
-        let kalman_gains = broad_dot_ix3_ix3(&l_matrices, &inv_innovation_covariances);
-        let updated_states = update_states(&states, &kalman_gains, &innovations);
-        let updated_covariances = update_covariance(covariances, &kalman_gains, &l_matrices);
+        let inv_innovation_covariances = invc_all_ix3(&innovation_covariances).unwrap();
+        let kalman_gains = broad_dot_ix3_ix3(&l_matrices, &inv_innovation_covariances).unwrap();
+        let updated_states = update_states(&states, &kalman_gains, &innovations).unwrap();
+        let updated_covariances = update_covariance(covariances, &kalman_gains, &l_matrices).unwrap();
 
         (updated_states.into_owned(), updated_covariances)
     }
@@ -113,13 +113,13 @@ where
         let predicted_states = (self.transition_function)(&states.view(), &zeros.view());
 
         let state_jacobi = (self.transition_function_jacobi_state)(&states.view(), &zeros.view());
-        let mut predicted_covariances = quadratic_form_ix3_ix3_ix3(&covariances, &state_jacobi);
+        let mut predicted_covariances = quadratic_form_ix3_ix3_ix3(&covariances, &state_jacobi).unwrap();
 
         let broadcast_transition_covariance = self.transition_covariance
             .broadcast(covariances.raw_dim())
             .unwrap();
         let noise_jacobi = (self.transition_function_jacobi_noise)(&states.view(), &zeros.view());
-        let second_summand = quadratic_form_ix3_ix3_ix3(&broadcast_transition_covariance, &noise_jacobi);
+        let second_summand = quadratic_form_ix3_ix3_ix3(&broadcast_transition_covariance, &noise_jacobi).unwrap();
         predicted_covariances.add_assign(&second_summand);
 
         (predicted_states, predicted_covariances)
@@ -136,27 +136,27 @@ where
 
         let zeros = Array2::zeros([states_number, measurement_dim]);
         let expected_measurements = (self.measurement_function)(&states.view(), &zeros.view());
-        let innovations_negated = pairwise_difference(&expected_measurements, measurements);
+        let innovations_negated = pairwise_difference(&expected_measurements, measurements).unwrap();
 
         let measurement_jacobi = (self.measurement_function_jacobi_state)(&states.view(), &zeros.view());
         let mut measurement_jacobi_view = measurement_jacobi.view();
         measurement_jacobi_view.swap_axes(1, 2);
-        let state_l_matrices = broad_dot_ix3_ix3(&covariances, &measurement_jacobi_view);
+        let state_l_matrices = broad_dot_ix3_ix3(&covariances, &measurement_jacobi_view).unwrap();
 
         let noise_jacobi = (self.measurement_function_jacobi_noise)(&states.view(), &zeros.view());
         let measurement_covariance_shape = self.measurement_covariance.dim();
         let target_broadcast_shape = [noise_jacobi.dim().0, measurement_covariance_shape.0, measurement_covariance_shape.1];
         let broadcast_measurement_covariances = self.measurement_covariance.broadcast(target_broadcast_shape).unwrap();
-        let second_summand = quadratic_form_ix3_ix3_ix3(&broadcast_measurement_covariances, &noise_jacobi);
+        let second_summand = quadratic_form_ix3_ix3_ix3(&broadcast_measurement_covariances, &noise_jacobi).unwrap();
 
-        let mut innovation_covariances = broad_dot_ix3_ix3(&measurement_jacobi, &state_l_matrices);
+        let mut innovation_covariances = broad_dot_ix3_ix3(&measurement_jacobi, &state_l_matrices).unwrap();
         innovation_covariances.add_assign(&second_summand);
 
-        let inv_innovation_covariances = invc_all_ix3(&innovation_covariances);
-        let kalman_gains = broad_dot_ix3_ix3(&state_l_matrices, &inv_innovation_covariances);
+        let inv_innovation_covariances = invc_all_ix3(&innovation_covariances).unwrap();
+        let kalman_gains = broad_dot_ix3_ix3(&state_l_matrices, &inv_innovation_covariances).unwrap();
 
-        let updated_states = update_states(&states, &kalman_gains, &innovations_negated);
-        let updated_covariances = update_covariance(covariances, &kalman_gains, &state_l_matrices);
+        let updated_states = update_states(&states, &kalman_gains, &innovations_negated).unwrap();
+        let updated_covariances = update_covariance(covariances, &kalman_gains, &state_l_matrices).unwrap();
 
         (updated_states, updated_covariances)
     }
@@ -191,7 +191,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use ndarray::{Array2, ArrayView, ArrayView2, Axis};
+    use ndarray::{Array2, ArrayView2, Axis};
 
     use crate::filter::extended_kalman::ExtendedKalmanFilter;
 

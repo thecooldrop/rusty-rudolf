@@ -2,11 +2,12 @@
 //! which are used to encapsulate the functionality of filtering algorithms.
 
 use cauchy::Scalar;
-use ndarray::{Array2, Array3, ArrayBase, Data, ErrorKind, Ix2, Ix3, ShapeError};
+use ndarray::{Array2, Array3, ArrayBase, Data, ErrorKind, Ix2, Ix3, ShapeError, Axis, Zip};
 use ndarray_linalg::lapack::Lapack;
 
 use super::filter_traits::Filter;
 use super::kalman_common::*;
+use ndarray::linalg::general_mat_mul;
 
 /// Basic linear Kalman filtering algorithm
 ///
@@ -17,6 +18,27 @@ use super::kalman_common::*;
 ///
 /// Type parameter `T: Scalar + Lapack` is used to indicate that Kalman filter can contain any
 /// matrices, which are considered to contain numbers ( i.e real or complex numbers ).
+/// ```
+/// use rusty_rudolf::filter::kalman::KalmanFilter;
+/// use ndarray::{Array2, Array3, Axis};
+/// use rusty_rudolf::filter::filter_traits::Filter;
+/// let identity = Array2::<f64>::eye(8);
+/// let kalman_filter = KalmanFilter::new(&identity, &identity, &identity, &identity).unwrap();
+/// let states = Array2::eye(8);
+/// let covariances = Array2::eye(8)
+///     .insert_axis(Axis(0))
+///     .broadcast([8,8,8])
+///     .unwrap()
+///     .to_owned();
+/// let (predicted_states, predicted_covariances) = kalman_filter.predict(&states, &covariances);
+/// assert_eq!(predicted_states.dim(), (8,8));
+/// assert_eq!(predicted_covariances.dim(), (8,8,8));
+///
+/// let measurements = Array2::ones([5,8]);
+/// let (updated_states, updated_covariances) = kalman_filter.update(&predicted_states, &predicted_covariances, &measurements);
+/// assert_eq!(updated_states.dim(), (8,5,8));
+/// assert_eq!(updated_covariances.dim(), (8,8,8));
+/// ```
 pub struct KalmanFilter<T: Scalar + Lapack> {
     transition_matrix: Array2<T>,
     observation_matrix: Array2<T>,
@@ -39,18 +61,26 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
     /// the covariance matrix of (i,j)-th rows of updated states, for all j ).
     type Update = (Array3<T>, Array3<T>);
 
+
     fn predict<A: Data<Elem = T>, B: Data<Elem = T>>(
         &self,
         states: &ArrayBase<A, Ix2>,
         covariances: &ArrayBase<B, Ix3>,
     ) -> Self::Prediction {
         let predicted_states = self.transition_matrix.dot(&states.t()).t().to_owned();
-        let predicted_covariances = quadratic_form_ix2_ix3_ix2_add_ix2(
-            &self.transition_matrix,
-            covariances,
-            &self.transition_matrix.t(),
-            &self.transition_covariance,
-        );
+        let mut predicted_covariances = self
+            .transition_covariance
+            .view()
+            .insert_axis(Axis(0))
+            .broadcast(covariances.raw_dim())
+            .unwrap()
+            .to_owned();
+        Zip::from(predicted_covariances.outer_iter_mut())
+            .and(covariances.outer_iter())
+            .apply(|mut out, cov| {
+                let left_multiple = self.transition_matrix.dot(&cov);
+                general_mat_mul(T::one(), &left_multiple, &self.transition_matrix.t(), T::one(), &mut out);
+            });
         (predicted_states, predicted_covariances)
     }
 
@@ -60,18 +90,22 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         covariances: &ArrayBase<B, Ix3>,
         measurements: &ArrayBase<C, Ix2>,
     ) -> (Array3<T>, Array3<T>) {
-        let expected_measurements = self.observation_matrix.dot(&states.t()).t().into_owned();
-        let innovations_negated = pairwise_difference(&expected_measurements, measurements);
-        let l_matrices = broad_dot_ix3_ix2(&covariances, &self.observation_matrix.t());
+        let expected_measurements =  {
+            let mut measurements = self.observation_matrix.dot(&states.t());
+            measurements.swap_axes(1,0);
+            measurements
+        };
+        let innovations_negated = pairwise_difference(&expected_measurements, measurements).unwrap();
+        let l_matrices = broad_dot_ix3_ix2(&covariances, &self.observation_matrix.t()).unwrap();
         let u_matrices = innovation_covariances_ix2(
             &self.observation_matrix,
             &self.observation_covariance,
             &l_matrices,
-        );
-        let u_matrices_inv = invc_all_ix3(&u_matrices);
-        let kalman_gains = broad_dot_ix3_ix3(&l_matrices, &u_matrices_inv);
-        let updated_states = update_states(&states, &kalman_gains, &innovations_negated);
-        let updated_covs = update_covariance(covariances, &kalman_gains, &l_matrices);
+        ).unwrap();
+        let u_matrices_inv = invc_all_ix3(&u_matrices).unwrap();
+        let kalman_gains = broad_dot_ix3_ix3(&l_matrices, &u_matrices_inv).unwrap();
+        let updated_states = update_states(&states, &kalman_gains, &innovations_negated).unwrap();
+        let updated_covs = update_covariance(covariances, &kalman_gains, &l_matrices).unwrap();
         (updated_states, updated_covs)
     }
 }
@@ -148,6 +182,7 @@ impl<T: Scalar + Lapack> KalmanFilter<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ndarray::{arr2, arr3};
 
     #[test]
     fn transition_covariance_matrix_has_to_be_square() -> Result<(), String> {
@@ -253,7 +288,7 @@ mod tests {
         let measurements = Array2::ones([10, 8]);
         let (updated_states, updated_covs) = kf.update(&states, &covariances, &measurements);
 
-        let expected_dimension_state = (10, 100, 8);
+        let expected_dimension_state = (100, 10, 8);
         let expected_dimension_covs = (100, 8, 8);
 
         if updated_states.dim().eq(&expected_dimension_state)
@@ -266,5 +301,32 @@ mod tests {
                     .to_string(),
             )
         }
+    }
+
+    #[test]
+    fn prediction_has_correct_output() -> Result<(), String> {
+        let eye4 = Array2::eye(4);
+        let transition_matrix = 2.0 * &eye4;
+        let kf = KalmanFilter::<f64>::new(&transition_matrix, &eye4, &eye4, &eye4).unwrap();
+        let states = Array2::ones([2, 4]);
+        let covariances = Array2::eye(4)
+            .broadcast([2,4,4])
+            .unwrap()
+            .to_owned();
+        let (predicted_states, predicted_covariances) = kf.predict(&states, &covariances);
+
+        let expected_states = arr2(&[[2.0, 2.0, 2.0, 2.0],
+                                                    [2.0, 2.0, 2.0, 2.0]]);
+        let expected_covariances = arr3(&[[[5.0, 0.0, 0.0, 0.0],
+                                                          [0.0, 5.0, 0.0, 0.0],
+                                                          [0.0, 0.0, 5.0, 0.0],
+                                                          [0.0, 0.0, 0.0, 5.0]],
+                                                          [[5.0, 0.0, 0.0, 0.0],
+                                                          [0.0, 5.0, 0.0, 0.0],
+                                                          [0.0, 0.0, 5.0, 0.0],
+                                                          [0.0, 0.0, 0.0, 5.0]]]);
+        assert_eq!(predicted_states, expected_states);
+        assert_eq!(predicted_covariances, expected_covariances);
+        Ok(())
     }
 }
