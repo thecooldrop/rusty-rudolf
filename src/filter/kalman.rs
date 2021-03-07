@@ -62,6 +62,17 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
     type Update = (Array3<T>, Array3<T>);
 
 
+    /// This function computes prediction of given states and covariances according to regular
+    /// Kalman filtering algorithm.
+    /// ```
+    /// use ndarray::{Array2, Axis};
+    /// use rusty_rudolf::filter::kalman::KalmanFilter;
+    /// use rusty_rudolf::filter::filter_traits::Filter;
+    /// let eye = Array2::eye(8);
+    /// let kf = KalmanFilter::<f64>::new(&eye, &eye, &eye, &eye).unwrap();
+    /// let covariances = eye.view().insert_axis(Axis(0)).broadcast((8,8,8)).unwrap().to_owned();
+    /// let (updated_states, updated_covariances) = kf.predict(&eye, &covariances);
+    /// ```
     fn predict<A: Data<Elem = T>, B: Data<Elem = T>>(
         &self,
         states: &ArrayBase<A, Ix2>,
@@ -84,6 +95,40 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
         (predicted_states, predicted_covariances)
     }
 
+    /// Updates given states and covariances with given measurements according to regular Kalman
+    /// filtering algorithm. Note that this method computes the update of every state with every
+    /// measurement, and is highly optimized to avoid unncessary computations.
+    ///
+    /// Method gives two outputs, where both are of type `Array3<T>`. The first output represents
+    /// prediction of states, while second represents covariances. Note that covariances do not
+    /// depend on measurement and thus need only be computed once per state. Here is an example.
+    ///
+    /// ```
+    /// use ndarray::{Array2, Axis};
+    /// use rusty_rudolf::filter::kalman::KalmanFilter;
+    /// use rusty_rudolf::filter::filter_traits::Filter;
+    /// let eye = Array2::eye(8);
+    /// let kf = KalmanFilter::<f64>::new(&eye, &eye, &eye, &eye).unwrap();
+    /// let states = Array2::eye(8);
+    /// let covariances = Array2::eye(8).insert_axis(Axis(0)).broadcast([8,8,8]).unwrap().to_owned();
+    /// let measurements = Array2::ones([10,8]);
+    ///
+    /// let (updated_states, update_covariances) = kf.update(&states, &covariances, &measurements);
+    /// // First dimension indexed by state, second by measurement, and rows represent outputs
+    /// // thus for each of input states ( of which there are 8 ), there are 10 updates ( one for
+    /// // each of the measurements )
+    /// assert_eq!(updated_states.dim(), (8, 10, 8));
+    /// // First dimension indexed by state. Thus first matrix [i, :, :] represents the covariance
+    /// // for all of the states stored in [i, :, :] updated states.
+    /// assert_eq!(update_covariances.dim(), (8, 8, 8));
+    /// for due_to_state in updated_states.outer_iter() {
+    ///     // Here we are iterating over resulting updated states which resulted from states
+    ///     for due_to_measurement in due_to_state.outer_iter() {
+    ///         // Here we are iterating over updated states due to measurements
+    ///         continue;
+    ///     }
+    /// }
+    /// ```
     fn update<A: Data<Elem = T>, B: Data<Elem = T>, C: Data<Elem = T>>(
         &self,
         states: &ArrayBase<A, Ix2>,
