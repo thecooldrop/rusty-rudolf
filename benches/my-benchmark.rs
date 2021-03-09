@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use ndarray::{Array2, Array3};
 use rusty_rudolf::filter;
-use rusty_rudolf::filter::filter_traits::Filter;
+use rusty_rudolf::filter::traits::Filter;
 
 pub fn kalman_predict_benchmark(c: &mut Criterion) {
     let kf = filter::kalman::KalmanFilter::<f64>::new(

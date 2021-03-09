@@ -1,10 +1,13 @@
-use std::ops::AddAssign;
+//! This module contains the implementations of non-linear approximations to Kalman filters.
+//! Examples of algorithms provided include, but are not limited to extended Kalman filter,
+//! non-additive extended Kalman filter and unscented Kalman filter.
 
+use std::ops::AddAssign;
 use cauchy::Scalar;
 use ndarray::{Array2, Array3, ArrayBase, ArrayView2, Data, Ix2, Ix3};
 use ndarray_linalg::Lapack;
 
-use crate::filter::filter_traits::Filter;
+use crate::filter::traits::Filter;
 use crate::filter::kalman_common::{
     broad_dot_ix3_ix3, inv_all_ix3, invc_all_ix3, pairwise_difference, quadratic_form_ix3_ix3_ix3,
     update_covariance, update_states,
@@ -46,8 +49,8 @@ where
     /// // x, y and radial velocity measurements. We assume that transition function is simple
     /// // linear transition function:
     /// use ndarray::{arr2, Axis, Array2, Zip, Array3, ArrayView2};
-    /// use rusty_rudolf::filter::extended_kalman::AdditiveNoiseExtendedKalmanFilter;
-    /// use rusty_rudolf::filter::filter_traits::Filter;
+    /// use rusty_rudolf::filter::kalman::nonlinear::extended::AdditiveNoiseExtendedKalmanFilter;
+    /// use rusty_rudolf::filter::traits::Filter;
     /// let transition_matrix = arr2(&[[1.0, 0.0, 1.0, 0.0],
     ///                                [0.0, 1.0, 0.0, 1.0],
     ///                                [0.0, 0.0, 1.0, 0.0],
@@ -133,18 +136,6 @@ where
     ///                                                  Box::new(measurement_jacobis),
     ///                                                  &transition_covariance,
     ///                                                  &measurement_covariance);
-    ///
-    /// let states = Array2::ones([4,4]);
-    /// let covariances = Array2::eye(4)
-    ///    .view()
-    ///    .insert_axis(Axis(0))
-    ///    .broadcast([4,4,4])
-    ///    .unwrap()
-    ///    .to_owned();
-    ///
-    /// let (predicted_states, predicted_covariances) = ekf.predict(&states, &covariances);
-    /// let measurements = Array2::ones([10,3]);
-    /// let (updated_states, updated_covariances) = ekf.update(&predicted_states, &predicted_covariances, &measurements);
     /// ```
     ///
     pub fn new(
@@ -171,9 +162,132 @@ impl<Num> Filter<Num> for AdditiveNoiseExtendedKalmanFilter<Num>
 where
     Num: Scalar + Lapack,
 {
+    /// Represents the type of output produced by prediction method. The first component of the
+    /// tuple represents the predicted states. The i-th row represents the prediction of the
+    /// of the i-th input state. The analogous holds for second component, where i-th entry along
+    /// first axis represents the prediction of the i-th covariance matrix input.
     type Prediction = (Array2<Num>, Array3<Num>);
+
+    /// Type of output produced by update method. The first component represents a data structure
+    /// containing the update of each of input states by each of the input measurements.
+    ///
+    /// Assume that we have following matrix shapes are given as input states=5x8, covariances=5x8x8
+    /// and measurements=10x8. Then the first component of output would be 5x10x8 and second component
+    /// would be 5x8x8. Thus for example the slice [1,2,:] of first component would represent
+    /// the second state updated by third input measurement, whike [1,:,:] of second component
+    /// would represent the covariance matices of all states in slice [1,:,:] in first component.
     type Update = (Array3<Num>, Array3<Num>);
 
+
+    /// Computes the predicted states and covariances as given by regular extended Kalman filter
+    /// equations.
+    ///
+    /// Assume that AdditiveNoiseExtendedKalmanFilter is constructed as described in documentation
+    /// of `AdditiveNoiseExtendedKalmanFilter::new`, then this method can be used as follows
+    ///
+    /// ```
+    /// # use ndarray::{arr2, Axis, Array2, Zip, Array3, ArrayView2};
+    /// # use rusty_rudolf::filter::kalman::nonlinear::extended::AdditiveNoiseExtendedKalmanFilter;
+    /// # use rusty_rudolf::filter::traits::Filter;
+    /// # let transition_matrix = arr2(&[[1.0, 0.0, 1.0, 0.0],
+    /// #                               [0.0, 1.0, 0.0, 1.0],
+    /// #                               [0.0, 0.0, 1.0, 0.0],
+    /// #                               [0.0, 0.0, 0.0, 1.0]]);
+    /// # let transition_function = {
+    /// #   let inner_transition_matrix = transition_matrix.clone();
+    /// #   move |states: &ArrayView2<f64>| {
+    /// #       let output_states = inner_transition_matrix.dot(&states.t()).t().to_owned();
+    /// #       output_states
+    /// #   }
+    /// # };
+    /// #
+    /// # let transition_jacobis = {
+    /// #   let inner_transition_matrix = transition_matrix.clone();
+    /// #   move |states: &ArrayView2<f64>| {
+    /// #       let (states_rows, states_cols) = states.dim();
+    /// #       inner_transition_matrix.view()
+    /// #           .insert_axis(Axis(0))
+    /// #           .broadcast([states_rows, states_cols, states_cols])
+    /// #           .unwrap()
+    /// #           .to_owned()
+    /// #   }
+    /// #  };
+    ///
+    /// # let measurement_function = |states: &ArrayView2<f64>| {
+    /// #   let (state_rows, state_cols) = states.dim();
+    /// #   let mut measurements = Array2::zeros([state_rows, 3]);
+    /// #   let x_states_view = states.slice(ndarray::s![.., 0]);
+    /// #   let y_states_view = states.slice(ndarray::s![.., 2]);
+    /// #   let velx_states = states.slice(ndarray::s![.., 1]);
+    /// #   let vely_states = states.slice(ndarray::s![.., 3]);
+    ///
+    /// #   measurements.slice_mut(ndarray::s![.., 0]).assign(&x_states_view);
+    /// #   measurements.slice_mut(ndarray::s![.., 1]).assign(&y_states_view);
+    /// #   let mut vel_r_outputs_view = measurements.slice_mut(ndarray::s![.., 2]);
+    /// #   Zip::from(&x_states_view)
+    /// #       .and(&y_states_view)
+    /// #       .and(&velx_states)
+    /// #       .and(&vely_states)
+    /// #       .apply_assign_into(vel_r_outputs_view, |x, y, vel_x, vel_y| {
+    /// #           let range = f64::sqrt(x*x + y*y);
+    /// #           let numerator = x*vel_x + y*vel_y;
+    /// #           numerator / range
+    /// #   });
+    /// #   measurements
+    /// # };
+    /// # let measurement_jacobis = |states: &ArrayView2<f64>| {
+    /// #   let x_states_view = states.slice(ndarray::s![.., 0]);
+    /// #   let y_states_view = states.slice(ndarray::s![.., 2]);
+    /// #   let x_vel_states_view = states.slice(ndarray::s![.., 1]);
+    /// #   let y_vel_states_view = states.slice(ndarray::s![.., 3]);
+    /// #   let (state_rows, state_cols) = states.dim();
+    /// #   let mut jacobis = Array3::<f64>::zeros([state_rows, 3, state_cols]);
+    /// #   Zip::from(jacobis.outer_iter_mut())
+    /// #       .and(x_states_view)
+    /// #       .and(y_states_view)
+    /// #       .and(x_vel_states_view)
+    /// #       .and(y_vel_states_view)
+    /// #       .apply(|mut jacobi, x, y, velx, vely| {
+    /// #           let range_sq = x*x + y*y;
+    /// #           let range = f64::sqrt(range_sq);
+    /// #           let numerator = x*velx + y*vely;
+    /// #
+    /// #           let radial_vel_derivative_x = (velx / range) - x * numerator;
+    /// #           let radial_vel_derivative_y = (vely / range) - y * numerator;
+    /// #           let radial_vel_derivative_velx = x / range;
+    /// #           let radial_vel_derivative_vely = y / range;
+    /// #
+    /// #          jacobi[(0,0)] = 1.0;
+    /// #           jacobi[(1,1)] = 1.0;
+    /// #           jacobi[(2,0)] = radial_vel_derivative_x;
+    /// #           jacobi[(2,1)] = radial_vel_derivative_vely;
+    /// #           jacobi[(2,2)] = radial_vel_derivative_velx;
+    /// #           jacobi[(2,3)] = radial_vel_derivative_y;
+    /// #       });
+    /// #   jacobis
+    /// # };
+    /// # let transition_covariance = Array2::<f64>::eye(4);
+    /// # let measurement_covariance = Array2::<f64>::eye(3);
+    /// let ekf = AdditiveNoiseExtendedKalmanFilter::new(Box::new(transition_function),
+    ///                                                  Box::new(transition_jacobis),
+    ///                                                  Box::new(measurement_function),
+    ///                                                  Box::new(measurement_jacobis),
+    ///                                                  &transition_covariance,
+    ///                                                 &measurement_covariance);
+    ///
+    /// let states = Array2::ones([4,4]);
+    /// let covariances = Array2::eye(4)
+    ///    .view()
+    ///    .insert_axis(Axis(0))
+    ///    .broadcast([4,4,4])
+    ///    .unwrap()
+    ///    .to_owned();
+    ///
+    /// let (predicted_states, predicted_covariances) = ekf.predict(&states, &covariances);
+    /// let measurements = Array2::ones([10,3]);
+    /// let (updated_states, updated_covariances) = ekf.update(&predicted_states, &predicted_covariances, &measurements);
+    /// ```
+    ///
     fn predict<A: Data<Elem = Num>, B: Data<Elem = Num>>(
         &self,
         states: &ArrayBase<A, Ix2>,
@@ -191,6 +305,121 @@ where
         (predicted_states, predicted_covariances)
     }
 
+    /// Computes the update of each of the states and covariances with each of the input
+    /// measurements as described by regular extended Kalman filter equations.
+    ///
+    /// Assuming that the filter has been initialized as described in
+    /// `AdditiveNoiseExtendedKalmanFilter::new`, then the update can be computed as follows:
+    /// ```
+    /// # use ndarray::{arr2, Axis, Array2, Zip, Array3, ArrayView2};
+    /// # use rusty_rudolf::filter::kalman::nonlinear::extended::AdditiveNoiseExtendedKalmanFilter;
+    /// # use rusty_rudolf::filter::traits::Filter;
+    /// # let transition_matrix = arr2(&[[1.0, 0.0, 1.0, 0.0],
+    /// #                               [0.0, 1.0, 0.0, 1.0],
+    /// #                               [0.0, 0.0, 1.0, 0.0],
+    /// #                               [0.0, 0.0, 0.0, 1.0]]);
+    /// # let transition_function = {
+    /// #   let inner_transition_matrix = transition_matrix.clone();
+    /// #   move |states: &ArrayView2<f64>| {
+    /// #       let output_states = inner_transition_matrix.dot(&states.t()).t().to_owned();
+    /// #       output_states
+    /// #   }
+    /// # };
+    /// #
+    /// # let transition_jacobis = {
+    /// #   let inner_transition_matrix = transition_matrix.clone();
+    /// #   move |states: &ArrayView2<f64>| {
+    /// #       let (states_rows, states_cols) = states.dim();
+    /// #       inner_transition_matrix.view()
+    /// #           .insert_axis(Axis(0))
+    /// #           .broadcast([states_rows, states_cols, states_cols])
+    /// #           .unwrap()
+    /// #           .to_owned()
+    /// #   }
+    /// #  };
+    ///
+    /// # let measurement_function = |states: &ArrayView2<f64>| {
+    /// #   let (state_rows, state_cols) = states.dim();
+    /// #   let mut measurements = Array2::zeros([state_rows, 3]);
+    /// #   let x_states_view = states.slice(ndarray::s![.., 0]);
+    /// #   let y_states_view = states.slice(ndarray::s![.., 2]);
+    /// #   let velx_states = states.slice(ndarray::s![.., 1]);
+    /// #   let vely_states = states.slice(ndarray::s![.., 3]);
+    ///
+    /// #   measurements.slice_mut(ndarray::s![.., 0]).assign(&x_states_view);
+    /// #   measurements.slice_mut(ndarray::s![.., 1]).assign(&y_states_view);
+    /// #   let mut vel_r_outputs_view = measurements.slice_mut(ndarray::s![.., 2]);
+    /// #   Zip::from(&x_states_view)
+    /// #       .and(&y_states_view)
+    /// #       .and(&velx_states)
+    /// #       .and(&vely_states)
+    /// #       .apply_assign_into(vel_r_outputs_view, |x, y, vel_x, vel_y| {
+    /// #           let range = f64::sqrt(x*x + y*y);
+    /// #           let numerator = x*vel_x + y*vel_y;
+    /// #           numerator / range
+    /// #   });
+    /// #   measurements
+    /// # };
+    /// # let measurement_jacobis = |states: &ArrayView2<f64>| {
+    /// #   let x_states_view = states.slice(ndarray::s![.., 0]);
+    /// #   let y_states_view = states.slice(ndarray::s![.., 2]);
+    /// #   let x_vel_states_view = states.slice(ndarray::s![.., 1]);
+    /// #   let y_vel_states_view = states.slice(ndarray::s![.., 3]);
+    /// #   let (state_rows, state_cols) = states.dim();
+    /// #   let mut jacobis = Array3::<f64>::zeros([state_rows, 3, state_cols]);
+    /// #   Zip::from(jacobis.outer_iter_mut())
+    /// #       .and(x_states_view)
+    /// #       .and(y_states_view)
+    /// #       .and(x_vel_states_view)
+    /// #       .and(y_vel_states_view)
+    /// #       .apply(|mut jacobi, x, y, velx, vely| {
+    /// #           let range_sq = x*x + y*y;
+    /// #           let range = f64::sqrt(range_sq);
+    /// #           let numerator = x*velx + y*vely;
+    /// #
+    /// #           let radial_vel_derivative_x = (velx / range) - x * numerator;
+    /// #           let radial_vel_derivative_y = (vely / range) - y * numerator;
+    /// #           let radial_vel_derivative_velx = x / range;
+    /// #           let radial_vel_derivative_vely = y / range;
+    /// #
+    /// #          jacobi[(0,0)] = 1.0;
+    /// #           jacobi[(1,1)] = 1.0;
+    /// #           jacobi[(2,0)] = radial_vel_derivative_x;
+    /// #           jacobi[(2,1)] = radial_vel_derivative_vely;
+    /// #           jacobi[(2,2)] = radial_vel_derivative_velx;
+    /// #           jacobi[(2,3)] = radial_vel_derivative_y;
+    /// #       });
+    /// #   jacobis
+    /// # };
+    /// # let transition_covariance = Array2::<f64>::eye(4);
+    /// # let measurement_covariance = Array2::<f64>::eye(3);
+    /// let ekf = AdditiveNoiseExtendedKalmanFilter::new(Box::new(transition_function),
+    ///                                                  Box::new(transition_jacobis),
+    ///                                                  Box::new(measurement_function),
+    ///                                                  Box::new(measurement_jacobis),
+    ///                                                  &transition_covariance,
+    ///                                                 &measurement_covariance);
+    ///
+    /// let states = Array2::ones([4,4]);
+    /// let covariances = Array2::eye(4)
+    ///    .view()
+    ///    .insert_axis(Axis(0))
+    ///    .broadcast([4,4,4])
+    ///    .unwrap()
+    ///    .to_owned();
+    ///
+    /// let (predicted_states, predicted_covariances) = ekf.predict(&states, &covariances);
+    /// let measurements = Array2::ones([10,3]);
+    /// let (updated_states, updated_covariances) = ekf.update(&predicted_states, &predicted_covariances, &measurements);
+    ///
+    /// // Access the second state, updated by third measurement:
+    /// updated_states.slice(ndarray::s![1,2,..]);
+    ///
+    /// // Access the all updated values for second input state, and covariance matrix which
+    /// // valid for all of the outputs assigned to second output states:
+    /// let second_states = updated_states.slice(ndarray::s![1,..,..]);
+    /// let second_covariances = updated_covariances.slice(ndarray::s![1,..,..]);
+    /// ```
     fn update<A: Data<Elem = Num>, B: Data<Elem = Num>, C: Data<Elem = Num>>(
         &self,
         states: &ArrayBase<A, Ix2>,
@@ -349,7 +578,7 @@ where
 mod tests {
     use ndarray::{Array2, ArrayView2, Axis};
 
-    use crate::filter::extended_kalman::ExtendedKalmanFilter;
+    use crate::filter::kalman::nonlinear::extended::ExtendedKalmanFilter;
 
     #[test]
     fn can_create_extended_kalman_filter() {

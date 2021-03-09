@@ -4,10 +4,9 @@
 use cauchy::Scalar;
 use ndarray::{Array2, Array3, ArrayBase, Axis, Data, ErrorKind, Ix2, Ix3, ShapeError, Zip};
 use ndarray_linalg::lapack::Lapack;
-
-use super::filter_traits::Filter;
-use super::kalman_common::*;
 use ndarray::linalg::general_mat_mul;
+use crate::filter::kalman_common::{pairwise_difference, broad_dot_ix3_ix2, innovation_covariances_ix2, invc_all_ix3, broad_dot_ix3_ix3, update_states, update_covariance};
+use crate::filter::Filter;
 
 /// Basic linear Kalman filtering algorithm
 ///
@@ -19,9 +18,9 @@ use ndarray::linalg::general_mat_mul;
 /// Type parameter `T: Scalar + Lapack` is used to indicate that Kalman filter can contain any
 /// matrices, which are considered to contain numbers ( i.e real or complex numbers ).
 /// ```
-/// use rusty_rudolf::filter::kalman::KalmanFilter;
 /// use ndarray::{Array2, Array3, Axis};
-/// use rusty_rudolf::filter::filter_traits::Filter;
+/// use rusty_rudolf::filter::traits::Filter;
+/// use rusty_rudolf::filter::kalman::linear::KalmanFilter;
 /// let identity = Array2::<f64>::eye(8);
 /// let kalman_filter = KalmanFilter::new(&identity, &identity, &identity, &identity).unwrap();
 /// let states = Array2::eye(8);
@@ -65,8 +64,8 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
     /// Kalman filtering algorithm.
     /// ```
     /// use ndarray::{Array2, Axis};
-    /// use rusty_rudolf::filter::kalman::KalmanFilter;
-    /// use rusty_rudolf::filter::filter_traits::Filter;
+    /// use rusty_rudolf::filter::traits::Filter;
+    /// use rusty_rudolf::filter::kalman::linear::KalmanFilter;
     /// let eye = Array2::eye(8);
     /// let kf = KalmanFilter::<f64>::new(&eye, &eye, &eye, &eye).unwrap();
     /// let covariances = eye.view().insert_axis(Axis(0)).broadcast((8,8,8)).unwrap().to_owned();
@@ -110,8 +109,8 @@ impl<T: Scalar + Lapack> Filter<T> for KalmanFilter<T> {
     ///
     /// ```
     /// use ndarray::{Array2, Axis};
-    /// use rusty_rudolf::filter::kalman::KalmanFilter;
-    /// use rusty_rudolf::filter::filter_traits::Filter;
+    /// use rusty_rudolf::filter::traits::Filter;
+    /// use rusty_rudolf::filter::kalman::linear::KalmanFilter;
     /// let eye = Array2::eye(8);
     /// let kf = KalmanFilter::<f64>::new(&eye, &eye, &eye, &eye).unwrap();
     /// let states = Array2::eye(8);

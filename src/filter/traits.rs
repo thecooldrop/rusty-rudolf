@@ -1,3 +1,5 @@
+//! Traits representing the filtering algorithms
+
 use cauchy::Scalar;
 use ndarray::{ArrayBase, Data, Ix2, Ix3};
 use ndarray_linalg::Lapack;
