@@ -1,6 +1,5 @@
-//! This module contains the implementations of non-linear approximations to Kalman filters.
-//! Examples of algorithms provided include, but are not limited to extended Kalman filter,
-//! non-additive extended Kalman filter and unscented Kalman filter.
+//! Here series-based approximations to optimal Kalman filter are considered. These filters
+//! are usually known as Kalman filters.
 
 use std::ops::AddAssign;
 use cauchy::Scalar;
@@ -449,9 +448,19 @@ where
     }
 }
 
-type JacobiMatrixProducer<Num> = Box<dyn Fn(&ArrayView2<Num>, &ArrayView2<Num>) -> Array3<Num>>;
-type RowStackProducer<Num> = Box<dyn Fn(&ArrayView2<Num>, &ArrayView2<Num>) -> Array2<Num>>;
+pub type JacobiMatrixProducer<Num> = Box<dyn Fn(&ArrayView2<Num>, &ArrayView2<Num>) -> Array3<Num>>;
+pub type RowStackProducer<Num> = Box<dyn Fn(&ArrayView2<Num>, &ArrayView2<Num>) -> Array2<Num>>;
 
+
+/// General extended Kalman for transition and measurement functions parametrized both by state and
+/// noise
+///
+/// As described in `Simo Särkka - Bayesian Filtering and Smoothing` this filter is linear
+/// approximations for following types of dynamic and measurement models. Assuming that
+/// **X ~ N(m,P)** is PDF of state or measuremnt and **q ~ N(0,Q)** is PDF of noise in transition
+/// or measurement process, then this filter can be used for  transition/measurement
+/// models given by functions of form **y = g(x,q)**, where **y** is then the new state or
+/// measurement
 pub struct ExtendedKalmanFilter<Num>
 where
     Num: Scalar + Lapack,
@@ -470,9 +479,35 @@ impl<Num> Filter<Num> for ExtendedKalmanFilter<Num>
 where
     Num: Scalar + Lapack,
 {
+    /// Represents the type of output produced by prediction method. The first component of the
+    /// tuple represents the predicted states. The i-th row represents the prediction of the
+    /// of the i-th input state. The analogous holds for second component, where i-th entry along
+    /// first axis represents the prediction of the i-th covariance matrix input.
     type Prediction = (Array2<Num>, Array3<Num>);
+
+    /// Type of output produced by update method. The first component represents a data structure
+    /// containing the update of each of input states by each of the input measurements.
+    ///
+    /// Assume that we have following matrix shapes are given as input states=5x8, covariances=5x8x8
+    /// and measurements=10x8. Then the first component of output would be 5x10x8 and second component
+    /// would be 5x8x8. Thus for example the slice [1,2,:] of first component would represent
+    /// the second state updated by third input measurement, whike [1,:,:] of second component
+    /// would represent the covariance matices of all states in slice [1,:,:] in first component.
     type Update = (Array3<Num>, Array3<Num>);
 
+    /// Computes the predicition of states and covariances for general extended Kalman filter
+    ///
+    /// Exact equations implemented here can be found in
+    /// `Simo Särkka - Bayesian Filtering and Smoothing` in under **Algorithm 5.5**. Example usage
+    /// would be ( note this code will not compile, since currently no model is known for use
+    /// with this type of filter. Feel free to contribute one ) :
+    /// ```ignore
+    /// // Asumme filter is initialized properly as described in ExtendedKalmanFilter::new
+    /// let ekf: AdditiveExtendedKalmanFilter<f64> = ... // Some initialization of filter
+    /// let states = Array2::<f64>::ones([4,4]);
+    /// let covariances = Array2::<f64>::eye(4).insert_axis(Axis(0)).broadcast([4,4,4]).unwrap().into_owned();
+    /// let (predicted_states, predicted_covariances) = ekf.predict(&states, &covariances);
+    /// ```
     fn predict<A: Data<Elem = Num>, B: Data<Elem = Num>>(
         &self,
         states: &ArrayBase<A, Ix2>,
@@ -497,6 +532,20 @@ where
         (predicted_states, predicted_covariances)
     }
 
+    /// Computes the predicition of states and covariances for general extended Kalman filter
+    ///
+    /// Exact equations implemented here can be found in
+    /// `Simo Särkka - Bayesian Filtering and Smoothing` in under **Algorithm 5.5**. Example usage
+    /// would be ( note this code will not compile, since currently no model is known for use
+    /// with this type of filter. Feel free to contribute one ) :
+    /// ```ignore
+    /// // Asumme filter is initialized properly as described in ExtendedKalmanFilter::new
+    /// let ekf: AdditiveExtendedKalmanFilter<f64> = ... // Some initialization of filter
+    /// let states = Array2::<f64>::ones([4,4]);
+    /// let covariances = Array2::<f64>::eye(4).insert_axis(Axis(0)).broadcast([4,4,4]).unwrap().into_owned();
+    /// let measurements = Array3::<f64>::ones([10,4,4]);
+    /// let (updated_states, updated_covariances) = ekf.update(&states, &covariances, &measurements);
+    /// ```
     fn update<A: Data<Elem = Num>, B: Data<Elem = Num>, C: Data<Elem = Num>>(
         &self,
         states: &ArrayBase<A, Ix2>,
@@ -551,6 +600,60 @@ impl<Num> ExtendedKalmanFilter<Num>
 where
     Num: Scalar + Lapack,
 {
+    /// Creates a new instance of ExtendedKalmanFilter
+    ///
+    /// Assuming that following facts hold for your model:
+    /// - **x~N(m,P)** is state PDF
+    /// - **q~N(0,Q)** is state transition noise
+    /// - **r~N(0,R)** is measurement noise
+    /// - **y=g(x,q)** is the state random variable after transition
+    /// - **z=h(y,r)** is the measurement random variable after transition
+    ///
+    /// then the filter may be initialized as follows ( note that this code is no running example
+    /// since the author currently knows no applications of this approximation ):
+    /// ```ignore
+    /// use rusty_rudolf::filter::kalman::nonlinear::extended::ExtendedKalmanFilter;
+    /// let transition_function = {
+    ///     // here provide the implementation of function g(x,q) as defined above
+    /// };
+    ///
+    /// let transition_function_state_jacobi = {
+    ///     // here provide the implementation of function which returns the part of Jacobian of g
+    ///     // matrix, derived with respect to components of first input parameter.
+    ///     // Basically if state has n dimensions, then this function should obtain first n columns
+    ///     // of Jacobian of g
+    /// };
+    ///
+    /// let transition_function_noise_jacobi = {
+    ///     // here provide the implementation of function which returns the part of Jacobian of g
+    ///     // matrix, derived with respect to components of second input parameter.
+    ///     // Basically if noise has n dimensions, then this function should obtain first last n
+    ///     // columns of Jacobian of g
+    /// };
+    ///
+    /// let measurement_function = {
+    ///     // Same as for transition_function, but this time do it for function h
+    /// };
+    ///
+    /// let measurement_function_state_jacobi = {
+    ///     // Same as for transition_function_state_jacobi, but this time for function h
+    /// };
+    ///
+    /// let transition_function_noise_jacobi = {
+    ///     // Same as for transition_function_noise_jacobi, but this time for function h
+    /// };
+    ///
+    /// let transition_covariance = .. // Some 2D matrix representing the transition covariance
+    /// let measurement_covariance = .. // Some 2D matrix representing the measurement covariances
+    /// let ekf: AdditiveExtendedKalmanFilter<f64> = ExtendedKalmanFilter::new(Box::new(transition_function),
+    ///     Box::new(transition_function_state_jacobi),
+    ///     Box::new(transition_function_noise_jacobi),
+    ///     Box::new(measurement_function),
+    ///     Box::new(measurement_function_state_jacobi),
+    ///     Box::new(measurement_function_noise_jacobi),
+    ///     &transition_covariance,
+    ///     &measurement_covariance);
+    /// ```
     pub fn new<A: Data<Elem = Num>>(
         transition_function: RowStackProducer<Num>,
         transition_function_jacobi_state: JacobiMatrixProducer<Num>,

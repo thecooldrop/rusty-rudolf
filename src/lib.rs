@@ -12,6 +12,9 @@
 //! filter (EKF), Unscented Kalman filter (UKF), cubature Kalman filters, particle filters
 //! (including many varieties of it), as well as their smoothing-algorithm counterparts such
 //! as Rauch-Tung-Striebel Smoother (RTS-Smoother) and many others.
+//!
+//! For more information about filtering algorithms in general a good free resource is
+//! [Simo Särkkä - Bayesian Filtering And Smooting](https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.461.4042&rep=rep1&type=pdf)
 pub mod filter;
 // #[global_allocator]
 // static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
